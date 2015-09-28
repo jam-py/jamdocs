@@ -1,0 +1,28 @@
+Jam.py shell for Sphinx is an interface for python documentation generator
+Sphinx, created by Georg Brandl and licensed under the BSD license.
+It is powered by Jam.py - framework for creating web database applications.
+
+To use it:
+1. Download the archive.
+
+2. Create a new directory and unpack the archive there.
+
+3. Go into the directory and run the following command from command line:
+    ./application.py
+You can specify a port as parameter. For example
+    ./application.py 8081
+for port 8081
+
+4. In a browser input into the addres bar
+    127.0.0.1:8080
+if you specified another port, replace 8080 with the port.
+
+5. In the dialog that will appear input name of the Sphinx project. For
+example:
+    Django docs
+and a path to conf.py of the project:
+    /home/user/libs/django/docs/conf.py
+click OK to save data and dbl click the project to select it.
+
+
+Thanks for checking it out.

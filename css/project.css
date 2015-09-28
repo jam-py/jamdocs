@@ -1,0 +1,33 @@
+
+.table-fixed {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.td-panel {
+    vertical-align: top;
+}
+
+.side-panel {
+    padding: 10px;
+    border: solid 1px #eee;
+    display: none;
+}
+
+#editor-box {
+    font-size: 14px;
+}
+
+.vert-btn {
+    margin-left: 14px;
+    margin-top: 1px;
+    margin-bottom: 1px;
+    width: 160px;
+}
+
+#make_info {
+    padding: 6px;
+    margin-left: 10px;
+    color: red;
+}
