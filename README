@@ -2,6 +2,13 @@ Jam.py shell for Sphinx is an interface for python documentation generator
 Sphinx, created by Georg Brandl and licensed under the BSD license.
 It is powered by Jam.py - framework for creating web database applications.
 
+Here are some screenshots:
+
+http://jam-py.com/jamdocs/screenshot1.png
+http://jam-py.com/jamdocs/screenshot2.png
+http://jam-py.com/jamdocs/screenshot3.png
+http://jam-py.com/jamdocs/screenshot4.png
+
 To use it:
 1. Download the archive.
 
