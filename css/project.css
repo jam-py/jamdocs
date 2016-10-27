@@ -1,5 +1,5 @@
-
-.table-fixed {
+ 
+.table-fixed { 
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
@@ -31,3 +31,7 @@
     margin-left: 10px;
     color: red;
 }
+
+/*.ace_content {*/
+/*    font-size: 15px;*/
+/*}*/

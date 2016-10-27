@@ -8,6 +8,14 @@ NEED_PASSWORD = False
 NEED_ENCODING = False
 NEED_HOST = False
 NEED_PORT = False
+CAN_CHANGE_TYPE = False
+CAN_CHANGE_SIZE = True
+UPPER_CASE = True
+DDL_ROLLBACK = False
+FROM = '"%s" AS %s'
+LEFT_OUTER_JOIN = 'OUTER LEFT JOIN "%s" AS %s'
+FIELD_AS = 'AS'
+LIKE = 'LIKE'
 
 JAM_TYPES = TEXT, INTEGER, FLOAT, CURRENCY, DATE, DATETIME, BOOLEAN, BLOB = range(1, 9)
 FIELD_TYPES = {
@@ -44,29 +52,60 @@ def connect(database, user, password, host, port, encoding):
 def get_lastrowid(cursor):
     return cursor.lastrowid
 
-LEFT_OUTER_JOIN = 'OUTER LEFT JOIN'
-LIKE = 'LIKE'
+def get_select(query, start, end, fields):
+    offset = query['__offset']
+    limit = query['__limit']
+    result = 'SELECT %s FROM %s' % (start, end)
+    if limit:
+        result += ' LIMIT %d, %d' % (offset, limit)
+    return result
 
-def limit_start(offset, limit):
-    return ''
+def process_sql_params(params, cursor):
+    result = []
+    for p in params:
+        if type(p) == tuple:
+            value, data_type = p
+        else:
+            value = p
+        result.append(value)
+    return result
 
-def limit_end(offset, limit):
-    return 'LIMIT %d, %d' % (offset, limit)
+def process_sql_result(rows):
+    result = []
+    for row in rows:
+        result.append(list(row))
+    return result
+
+def cast_date(date_str):
+    return "CAST('" + date_str + "' AS DATE)"
+
+def cast_datetime(datetime_str):
+    return "CAST('" + datetime_str + "' AS TIMESTAMP)"
+
+def value_literal(index):
+    return '?'
 
 def upper_function():
     pass
 
 def create_table_sql(table_name, fields, foreign_fields=None):
     result = []
-    sql = 'CREATE TABLE "%s"\n(\n' % table_name
+    primary_key = ''
+    sql = set_case('CREATE TABLE "%s"\n(\n' % table_name)
     for field in fields:
-        sql += '"%s" %s' % (field['field_name'], FIELD_TYPES[field['data_type']])
-        if field['field_name'].upper() == u'ID':
+        sql += set_case('"%s" %s' % (field['field_name'], FIELD_TYPES[field['data_type']]))
+        if field['primary_key']:
+            primary_key = set_case(field['field_name'])
             sql += ' PRIMARY KEY'
+        if field['default_value']:
+            if field['data_type'] == TEXT:
+                sql += " DEFAULT '%s'" % field['default_value']
+            else:
+                sql += ' DEFAULT %s' % field['default_value']
         sql +=  ',\n'
     if foreign_fields:
         for field in foreign_fields:
-            sql += 'FOREIGN KEY(%s) REFERENCES %s(ID),\n' % (field['key'], field['ref'])
+            sql += set_case('FOREIGN KEY(%s) REFERENCES %s(%s),\n' % (field['key'], field['ref'], field['primary_key']))
     sql = sql[:-2]
     sql += ')\n'
     result.append(sql)
@@ -74,24 +113,29 @@ def create_table_sql(table_name, fields, foreign_fields=None):
 
 def delete_table_sql(table_name):
     result = []
-    result.append('DROP TABLE "%s"' % table_name)
+    result.append(set_case('DROP TABLE "%s"' % table_name))
     return result
 
-def create_index_sql(index_name, table_name, fields, desc):
-    return 'CREATE INDEX "%s" ON "%s" (%s)' % (index_name, table_name, fields)
+def create_index_sql(index_name, table_name, unique, fields, desc):
+    return set_case('CREATE %s INDEX "%s" ON "%s" (%s)' % (unique, index_name, table_name, fields))
 
 def create_foreign_index_sql(table_name, index_name, key, ref):
     return ''
 
 def delete_index(table_name, index_name):
-    return 'DROP INDEX "%s"' % index_name
+    return set_case('DROP INDEX "%s"' % index_name)
 
 def delete_foreign_index(table_name, index_name):
     pass
 
 def add_field_sql(table_name, field):
-    result = 'ALTER TABLE "%s" ADD COLUMN "%s" %s'
-    result = result % (table_name, field['field_name'], FIELD_TYPES[field['data_type']])
+    result = set_case('ALTER TABLE "%s" ADD COLUMN "%s" %s' % \
+        (table_name, field['field_name'], FIELD_TYPES[field['data_type']]))
+    if field['default_value']:
+        if field['data_type'] == TEXT:
+            sql += " DEFAULT '%s'" % field['default_value']
+        else:
+            sql += ' DEFAULT %s' % field['default_value']
     return result
 
 def del_field_sql(table_name, field):
@@ -102,9 +146,6 @@ def change_field_sql(table_name, old_field, new_field):
 
 def set_case(string):
     return string.upper()
-
-def param_literal():
-    return '?'
 
 def get_sequence_name(table_name):
     return None

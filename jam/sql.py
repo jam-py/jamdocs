@@ -2,7 +2,8 @@
 
 from __future__ import with_statement
 import sys
-import cPickle
+import json
+import traceback
 
 import common, db.db_modules as db_modules
 from dataset import *
@@ -14,47 +15,50 @@ class SQL(object):
             db_module = self.task.db_module
         sql = db_module.next_sequence_value_sql(self.table_name)
         if sql:
-            rec = self.task.execute_select_one(sql)
+            rec = self.task.execute_select(sql)
             if rec:
-                if rec[0]:
-                    return int(rec[0])
+                if rec[0][0]:
+                    return int(rec[0][0])
 
     def insert_sql(self, db_module):
-        self._records[self.rec_no][self.deleted.bind_index] = 0
+        if self._deleted_flag:
+            self._deleted_flag_field.set_data(0)
         sql = 'INSERT INTO "%s" (' % self.table_name
         row = []
         fields = ''
         values = ''
+        index = 0
         for field in self.fields:
             if not (field.calculated or field.master_field):
+                index += 1
                 fields += '"%s", ' % field.field_name
-                values +=  '%s, ' % db_module.param_literal()
-                row.append(field.raw_value)
+                values +=  '%s, ' % db_module.value_literal(index)
+                value = (field.raw_value, field.data_type)
+                row.append(value)
         fields = fields[:-2]
         values = values[:-2]
-        sql = db_module.set_case('INSERT INTO "%s" (%s) VALUES ' % (self.table_name, fields)) + '(' + values + ')'
+        sql = db_module.set_case('INSERT INTO "%s" (%s) VALUES ' % \
+            (self.table_name, fields)) + '(' + values + ')'
         return sql, row
 
     def update_sql(self, db_module):
         row = []
         command = db_module.set_case('UPDATE "%s" SET ' % self.table_name)
         fields = ''
+        index = 0
         for field in self.fields:
             if not (field.calculated or field.master_field):
-                fields += '"%s"=%s, ' % (db_module.set_case(field.field_name), db_module.param_literal())
-                value = field.get_raw_value()
-                if field.field_name.lower() == 'deleted':
-                    value = 0
+                index += 1
+                fields += '"%s"=%s, ' % \
+                    (db_module.set_case(field.field_name),
+                    db_module.value_literal(index))
+                value = (field.raw_value, field.data_type)
+                if field.field_name == self._deleted_flag:
+                    value = (0, field.data_type)
                 row.append(value)
         fields = fields[:-2]
-        id_field_name = 'id'
-        if self.id_field_name:
-            id_field_name = self.id_field_name
-            id_value = self._field_by_name(id_field_name).value
-        else:
-            id_field_name = 'id'
-            id_value = self.id.value
-        where = db_module.set_case(' WHERE %s = %s' % (id_field_name, id_value))
+        where = db_module.set_case(' WHERE %s = %s' % \
+            (self._primary_key, self._primary_key_field.value))
         return command + fields + where, row
 
     def delete_sql(self, db_module):
@@ -62,17 +66,21 @@ class SQL(object):
         if self.master:
             soft_delete = self.master.soft_delete
         if soft_delete:
-            sql = 'UPDATE %s SET %s = 1 WHERE %s = %s' % (self.table_name, self.deleted.field_name, self.id.field_name, self.id.value)
+            sql = 'UPDATE %s SET %s = 1 WHERE %s = %s' % \
+                (self.table_name, self._deleted_flag,
+                self._primary_key, self._primary_key_field.value)
         else:
-            sql = 'DELETE FROM %s WHERE %s = %s' % (self.table_name, self.id.field_name, self.id.value)
+            sql = 'DELETE FROM %s WHERE %s = %s' % \
+                (self.table_name, self._primary_key,
+                self._primary_key_field.value)
         return db_module.set_case(sql)
 
-    def apply_sql(self, priv=None, db_module=None):
+    def apply_sql(self, user_info=None, priv=None, db_module=None):
 
         def get_sql(item, db_module):
             if item.master:
-                item._records[item.rec_no][item.owner_id.bind_index] = item.owner.ID
-                item._records[item.rec_no][item.owner_rec_id.bind_index] = item.owner.id.value
+                item._master_id_field.set_data(item.master.ID)
+                item._master_rec_id_field.set_data(item.master._primary_key_field.value)
             if item.record_status == common.RECORD_INSERTED:
                 if not item.master:
                     if priv and not priv['can_create']:
@@ -92,27 +100,79 @@ class SQL(object):
                 sql = item.delete_sql(db_module)
                 param = None
             else:
-                raise Exception, u'apply_sql - invalid %s record_status %s, record: %s' % (item.item_name, item.record_status, item._records[item.rec_no])
+                raise Exception, u'apply_sql - invalid %s record_status %s, record: %s' % (item.item_name, item.record_status, item._dataset[item.rec_no])
+            primary_key_index = item.fields.index(item._primary_key_field)
+            master_rec_id_index = None
             if item.master:
-                owner_rec_id_index = item.fields.index(item.owner_rec_id)
-            else:
-                owner_rec_id_index = 0
-            id_index = item.fields.index(item.id)
-            info = {'ID': item.ID,
+                master_rec_id_index = item.fields.index(item._master_rec_id_field)
+            info = {
+                'ID': item.ID,
                 'table_name': item.table_name,
                 'status': item.record_status,
-                'id': item.id.value,
-                'id_index': id_index,
+                'primary_key': item._primary_key_field.value,
+                'primary_key_index': primary_key_index,
                 'log_id': item.get_rec_info()[common.REC_CHANGE_ID],
-                'owner_rec_id_index': owner_rec_id_index}
-            return sql, param, info
+                'master_rec_id_index': master_rec_id_index
+                }
+            h_sql, h_params, h_table_name = get_history_sql(item, user_info, db_module)
+            return sql, param, info, h_sql, h_params, h_table_name
 
         def delete_detail_sql(item, detail, db_module):
             if item.soft_delete:
-                sql = 'UPDATE %s SET DELETED = 1 WHERE OWNER_ID = %s AND OWNER_REC_ID = %s' % (detail.table_name, item.ID, item.id.value)
+                sql = 'UPDATE %s SET %s = 1 WHERE %s = %s AND %s = %s' % \
+                    (detail.table_name, detail._deleted_flag, detail._master_id, \
+                    item.ID, detail._master_rec_id, self._primary_key_field.value)
             else:
-                sql = 'DELETE FROM %s WHERE OWNER_ID = %s AND OWNER_REC_ID = %s' % (detail.table_name, item.ID, item.id.value)
-            return db_module.set_case(sql), None, None
+                sql = 'DELETE FROM %s WHERE %s = %s AND %s = %s' % \
+                    (detail.table_name, detail._master_id, item.ID, \
+                    detail._master_rec_id, self._primary_key_field.value)
+            h_sql, h_params, h_table_name = get_history_sql(item, user_info, db_module)
+            return db_module.set_case(sql), None, None, h_sql, h_params, h_table_name
+
+        def get_history_sql(item, user_info, db_module):
+            h_sql = None
+            h_params = None
+            h_table_name = None
+            if item.task.history_item and item.keep_history or (item.master and item.master.keep_history):
+                h_table_name = item.task.history_item.table_name
+                changes = None
+                user = None
+                if user_info:
+                    user = user_info['user_name']
+                if item.record_status != common.RECORD_DELETED:
+                    old_rec = item.get_rec_info()[3]
+                    new_rec = item._dataset[item.rec_no]
+                    f_list = []
+                    for f in item.fields:
+                        old = None
+                        if old_rec:
+                            old = old_rec[f.bind_index]
+                        new = new_rec[f.bind_index]
+                        if old != new:
+                            f_list.append([f.ID, old, new])
+                    d_list = []
+                    if not item.master:
+                        for detail in item.details:
+                            for d in detail:
+                                d_list.append([d.ID, d._primary_key_field.value, d.record_status])
+                    changes = (json.dumps([f_list, d_list], default=common.json_defaul_handler), common.BLOB)
+                h_fields = ['id', 'item_id', 'item_rec_id', 'operation', 'changes', 'user', 'date']
+                h_params = [None, item.ID, item._primary_key_field.value, item.record_status, changes, user, datetime.datetime.now()]
+                if item.task.history_item._deleted_flag:
+                    h_fields.append('deleted')
+                    h_params.append(0)
+                index = 0
+                fields = ''
+                values = ''
+                for f in h_fields:
+                    index += 1
+                    fields += '"%s", ' % f
+                    values +=  '%s, ' % db_module.value_literal(index)
+                fields = fields[:-2]
+                values = values[:-2]
+                h_sql = db_module.set_case('INSERT INTO "%s" (%s) VALUES ' % \
+                    (item.task.history_item.table_name, fields)) + '(' + values + ')'
+            return h_sql, h_params, h_table_name
 
         def generate_sql(item, db_module, result):
             ID, sql = result
@@ -134,12 +194,14 @@ class SQL(object):
         generate_sql(self, db_module, result)
         return {'delta': result}
 
+    def table_alias(self):
+        return '"%s"' % self.table_name
 
     def ref_table_alias(self, field):
         if field.master_field:
-            return field.lookup_item.table_name + str(self._fields.index(field.master_field))
+            return '%s_%d' % (field.lookup_item.table_name, field.master_field.ID)
         else:
-            return field.lookup_item.table_name + str(self._fields.index(field))
+            return '%s_%d' % (field.lookup_item.table_name, field.ID)
 
     def fields_clause(self, query, fields, db_module=None):
         if db_module is None:
@@ -156,34 +218,38 @@ class SQL(object):
             elif field.calculated:
                 sql += 'NULL AS "%s", ' % field.field_name
             else:
-                field_sql = '"%s"."%s"' % (self.table_name, field.field_name)
+                field_sql = '%s."%s"' % (self.table_alias(), field.field_name)
                 if funcs:
                     func = functions.get(field.field_name.upper())
                     if func:
-                        field_sql = '%s(%s)' % (func, field_sql)
+                        field_sql = '%s(%s) AS "%s"' % (func, field_sql, field.field_name)
                 sql += field_sql + ', '
         if query['__expanded']:
             for field in fields:
                 if field.lookup_item:
-                    sql += '"%s"."%s" AS "%s_LOOKUP", ' % (self.ref_table_alias(field), field.lookup_field, field.field_name)
+                    field_sql = '%s."%s" %s %s_LOOKUP' % \
+                    (self.ref_table_alias(field), field.lookup_field, db_module.FIELD_AS, field.field_name)
+                    if funcs:
+                        func = functions.get(field.field_name.upper())
+                        if func:
+                            field_sql = '%s(%s."%s") %s %s_LOOKUP' % \
+                            (func, self.ref_table_alias(field), field.lookup_field, db_module.FIELD_AS, field.field_name)
+                    sql += field_sql + ', '
         sql = sql[:-2]
         return db_module.set_case(sql)
 
     def from_clause(self, query, fields, db_module=None):
         if db_module is None:
             db_module = self.task.db_module
-        result = '"%s"' % self.table_name
+        result = db_module.FROM % (self.table_name, self.table_alias())
         if query['__expanded']:
             for field in fields:
                 if field.lookup_item and not field.master_field:
-                    if field.lookup_item.id_field_name:
-                        id_field_name = field.lookup_item.id_field_name
-                    else:
-                        id_field_name = 'id'
+                    primary_key_field_name = field.lookup_item._primary_key
                     result = '(' + result
-                    result += ' ' + db_module.LEFT_OUTER_JOIN + ' "%s" AS "%s"' % (field.lookup_item.table_name, self.ref_table_alias(field))
-                    result += ' ON "%s"."%s"' % (self.table_name, field.field_name)
-                    result += ' = "%s"."%s")'  % (self.ref_table_alias(field), id_field_name)
+                    result += ' ' + db_module.LEFT_OUTER_JOIN % (field.lookup_item.table_name, self.ref_table_alias(field))
+                    result += ' ON %s."%s"' % (self.table_alias(), field.field_name)
+                    result += ' = %s."%s")'  % (self.ref_table_alias(field), primary_key_field_name)
         return db_module.set_case(result)
 
     def where_clause(self, query, db_module=None):
@@ -203,18 +269,19 @@ class SQL(object):
             data_type = field.data_type
             if data_type == common.DATE:
                 if type(value) in (str, unicode):
-                    return "'" + value + "'"
+                    result = value
                 else:
-                    return "'" + value.strftime('%Y-%m-%d') + "'"
+                    result = value.strftime('%Y-%m-%d')
+                return db_module.cast_date(result)# "cast('" + result + "' AS DATE)"
             elif data_type == common.DATETIME:
                 if type(value) in (str, unicode):
                     result = value
                 else:
                     result = value.strftime('%Y-%m-%d %H:%M')
-                result = "cast('" + result + "' AS TIMESTAMP)"
+                result = db_module.cast_datetime(result)#"cast('" + result + "' AS TIMESTAMP)"
                 return result
             elif data_type == common.INTEGER:
-                if type(value) == int or value.isdigit():
+                if type(value) == int or type(value) in [str, unicode] and value.isdigit():
                     return str(value)
                 else:
                     if filter_type and filter_type in [common.FILTER_CONTAINS, common.FILTER_STARTWITH, common.FILTER_ENDWITH]:
@@ -252,16 +319,22 @@ class SQL(object):
         def get_condition(field_name, filter_type, value):
             field = self._field_by_name(field_name)
             esc_char = '/'
-            cond_field_name = db_module.set_case('"%s"."%s"' % (self.table_name, field_name))
+            cond_field_name = db_module.set_case('%s."%s"' % (self.table_alias(), field_name))
             if type(value) == str:
                 value = value.decode('utf-8')
             filter_sign = get_filter_sign(filter_type, value)
             cond_string = '%s %s %s'
             if filter_type in (common.FILTER_IN, common.FILTER_NOT_IN):
                 lst = '('
-                for it in value:
-                    lst += convert_field_value(field, it) + ', '
-                value = lst[:-2] + ')'
+                if len(value):
+                    for it in value:
+                        lst += convert_field_value(field, it) + ', '
+                    value = lst[:-2] + ')'
+                else:
+                    value = '()'
+            elif filter_type == common.FILTER_RANGE:
+                value = convert_field_value(field, value[0]) + \
+                    db_module.set_case(' AND ') + convert_field_value(field, value[1])
             elif filter_type == common.FILTER_ISNULL:
                 value = ''
             else:
@@ -269,7 +342,7 @@ class SQL(object):
                 if filter_type in [common.FILTER_CONTAINS, common.FILTER_STARTWITH, common.FILTER_ENDWITH]:
                     value, esc_found = escape_search(value, esc_char)
                     if field.lookup_item:
-                        cond_field_name = db_module.set_case('"%s"."%s"' % (self.ref_table_alias(field), field.lookup_field))
+                        cond_field_name = db_module.set_case('%s."%s"' % (self.ref_table_alias(field), field.lookup_field))
                     if filter_type == common.FILTER_CONTAINS:
                         value = '%' + value + '%'
                     elif filter_type == common.FILTER_STARTWITH:
@@ -281,7 +354,7 @@ class SQL(object):
                         cond_string = upper_function + '(%s) %s %s'
                         value = value.upper()
                     if esc_found:
-                        value = "'" + value + "' ESCAPE '" + esc_char + "'"
+                        value = "'" + value + db_module.set_case("' ESCAPE '") + esc_char + "'"
                     else:
                         value = "'" + value + "'"
             sql = cond_string % (cond_field_name, filter_sign, value)
@@ -294,14 +367,6 @@ class SQL(object):
                     raise Exception, 'sql.py where_clause method: boolen field condition may give ambiguious results.'
             return sql
 
-        def valid_filter(filter_type, value):
-            if value is None:
-                return False
-            if filter_type in [common.FILTER_IN, common.FILTER_NOT_IN]:
-                if type(value) in [tuple, list] and len(value) == 0:
-                    return False
-            return True
-
         if db_module is None:
             db_module = self.task.db_module
         result = ''
@@ -310,32 +375,39 @@ class SQL(object):
         deleted_in_filters = False
         if filters:
             for (field_name, filter_type, value) in filters:
-                if valid_filter(filter_type, value):
-                    if field_name == 'deleted':
+                if not value is None:
+                    if field_name == self._deleted_flag:
                         deleted_in_filters = True
-                    if filter_type == common.FILTER_SEARCH:
+                    if filter_type == common.FILTER_CONTAINS_ALL:
                         values = value.split()
                         for val in values:
                             conditions.append(get_condition(field_name, common.FILTER_CONTAINS, val))
+                    elif filter_type in [common.FILTER_IN, common.FILTER_NOT_IN] and \
+                        type(value) in [tuple, list] and len(value) == 0:
+                        conditions.append(db_module.set_case('%s."%s" IN (NULL)' % (self.table_alias(), self._primary_key)))
                     else:
                         conditions.append(get_condition(field_name, filter_type, value))
-        if not deleted_in_filters:
-            conditions.append(db_module.set_case('"%s"."deleted"=0' % self.table_name))
+        if not deleted_in_filters and self._deleted_flag:
+            conditions.append(db_module.set_case('%s."%s"=0' % \
+            (self.table_alias(), self._deleted_flag)))
         for sql in conditions:
-            result += sql + ' AND '
+            result += sql + db_module.set_case(' AND ')
         result = result[:-5]
         if result:
-            result = ' WHERE ' + result
+            result = db_module.set_case(' WHERE ') + result
         return result
 
     def group_clause(self, query, fields, db_module=None):
         if db_module is None:
             db_module = self.task.db_module
-        group_fields = query.get('__group')
+        group_fields = query.get('__group_by')
         result = ''
         if group_fields:
             for field_name in group_fields:
-                result = '"%s"."%s", ' % (self.table_name, field_name)
+                field = self.field_by_name(field_name)
+                result += '%s."%s", ' % (self.table_alias(), field_name)
+                if field.lookup_item:
+                    result += '%s_LOOKUP, ' % field.field_name
             if result:
                 result = result[:-2]
                 result = ' GROUP BY ' + result
@@ -344,65 +416,50 @@ class SQL(object):
             return ''
 
     def order_clause(self, query, db_module=None):
+        result = ''
+        if query.get('__funcs') and not query.get('__group_by'):
+            return result
         if db_module is None:
             db_module = self.task.db_module
-        result = ''
-        order_list = query.get('__order')
-        if order_list:
-            order_list = query['__order']
-        else:
-            order_list = self._order_by
+        order_list = query.get('__order', [])
         for order in order_list:
             field = self._field_by_ID(order[0])
             if field:
                 if query['__expanded'] and field.lookup_item:
-                    result += '"%s_LOOKUP"' % field.field_name
+                    result += '%s_LOOKUP' % field.field_name
                 else:
-                    result += '"%s"."%s"' % (self.table_name, field.field_name)
+                    result += '%s."%s"' % (self.table_alias(), field.field_name)
                 if order[1]:
                     result += ' DESC'
                 result += ', '
         if result:
             result = result[:-2]
             result = ' ORDER BY ' + result
+        elif query['__limit']:
+            result = ' ORDER BY %s."%s"' % (self.table_alias(), self._primary_key)
         return db_module.set_case(result)
-
-    def limit_clause_start(self, query, db_module=None):
-        if db_module is None:
-            db_module = self.task.db_module
-        result = ''
-        if query['__limit']:
-            result = db_module.limit_start(query['__loaded'], query['__limit'])
-        if result:
-            result += ' '
-        return db_module.set_case(result)
-
-    def limit_clause_end(self, query, db_module=None):
-        if db_module is None:
-            db_module = self.task.db_module
-        result = ''
-        if query['__limit']:
-            result = db_module.limit_end(query['__loaded'], query['__limit'])
-        return ' ' + db_module.set_case(result)
 
     def get_select_statement(self, query, db_module=None):
-        if db_module is None:
-            db_module = self.task.db_module
-        field_list = query['__fields']
-        if len(field_list):
-            fields = [self._field_by_name(field_name) for field_name in field_list]
-        else:
-            fields = self._fields
-        sql = 'SELECT ' + \
-            self.limit_clause_start(query, db_module) + \
-            self.fields_clause(query, fields, db_module) + \
-            ' FROM ' + \
-            self.from_clause(query, fields, db_module) + \
-            self.where_clause(query, db_module) + \
-            self.group_clause(query, fields, db_module) + \
-            self.order_clause(query, db_module) + \
-            self.limit_clause_end(query, db_module)
-        return sql
+        try:
+            if db_module is None:
+                db_module = self.task.db_module
+            field_list = query['__fields']
+            if len(field_list):
+                fields = [self._field_by_name(field_name) for field_name in field_list]
+            else:
+                fields = self._fields
+            sql = db_module.get_select(query, \
+                self.fields_clause(query, fields, db_module),
+                self.from_clause(query, fields, db_module) + \
+                self.where_clause(query, db_module) + \
+                self.group_clause(query, fields, db_module) + \
+                self.order_clause(query, db_module),
+                fields)
+            return sql
+        except Exception, e:
+            print self.item_name
+            print traceback.format_exc()
+            raise
 
     def get_record_count_query(self, query, db_module=None):
         if db_module is None:
@@ -426,12 +483,13 @@ class SQL(object):
                     dic['field_name'] = field.field_name
                     dic['data_type'] = field.data_type
                     dic['size'] = field.field_size
+                    dic['default_value'] = field.f_default_value.value
+                    dic['primary_key'] = field.id.value == item.f_primary_key.value
                     fields.append(dic)
         result = []
         db_module = db_modules.get_db_module(db_type)
-        result = db_module.create_table_sql(table_name, fields, foreign_fields=None)
+        result = db_module.create_table_sql(table_name, fields, foreign_fields)
         for i, s in enumerate(result):
-            result[i] = db_module.set_case(s)
             print result[i]
         return result
 
@@ -440,23 +498,33 @@ class SQL(object):
         db_module = db_modules.get_db_module(db_type)
         result = db_module.delete_table_sql(table_name)
         for i, s in enumerate(result):
-            result[i] = db_module.set_case(s)
             print result[i]
         return result
 
     def recreate_table_sql(self, db_type, old_fields, new_fields, fk_delta=None):
 
         def foreign_key_dict(ind):
+            fields = ind.task.sys_fields.copy()
+            fields.set_where(id=ind.f_foreign_field.value)
+            fields.open()
             dic = {}
-            dic['key'] = ind.f_foreign_field.display_text
-            ref_id = self.task.sys_fields.field_by_id(ind.f_foreign_field.value, 'f_object')
-            dic['ref'] = self.task.sys_items.field_by_id(ref_id, 'f_table_name')
+            dic['key'] = fields.f_field_name.value
+            ref_id = fields.f_object.value
+            items = self.task.sys_items.copy()
+            items.set_where(id=ref_id)
+            items.open()
+            dic['ref'] = items.f_table_name.value
+            primary_key = items.f_primary_key.value
+            fields.set_where(id=primary_key)
+            fields.open()
+            dic['primary_key'] = fields.f_field_name.value
             return dic
 
         def get_foreign_fields():
             indices = self.task.sys_indices.copy()
             indices.filters.owner_rec_id.value = self.id.value
             indices.open()
+            del_id = None
             if fk_delta and (fk_delta.rec_modified() or fk_delta.rec_deleted()):
                 del_id = fk_delta.id.value
             result = []
@@ -518,6 +586,8 @@ class SQL(object):
                 if old_field and new_field:
                     if old_field['field_name'] != new_field['field_name']:
                         return True
+                    elif old_field['default_value'] != new_field['default_value']:
+                        return True
                 elif old_field and not new_field:
                     return True
 
@@ -545,17 +615,21 @@ class SQL(object):
                 if old_field and new_field and db_type != db_modules.SQLITE:
                     if (old_field['field_name'] != new_field['field_name']) or \
                         (db_module.FIELD_TYPES[old_field['data_type']] != db_module.FIELD_TYPES[new_field['data_type']]) or \
+                        (old_field['default_value'] != new_field['default_value']) or \
                         (old_field['size'] != new_field['size']):
-                        result.append(db_module.change_field_sql(table_name, old_field, new_field))
+                        sql = db_module.change_field_sql(table_name, old_field, new_field)
+                        if type(sql) in (list, tuple):
+                            result += sql
+                        else:
+                            result.append()
             for key, (old_field, new_field) in comp.items():
                 if not old_field and new_field:
                     result.append(db_module.add_field_sql(table_name, new_field))
         for i, s in enumerate(result):
-            result[i] = db_module.set_case(s)
             print result[i]
         return result
 
-    def create_index_sql(self, db_type, table_name, fields=None, new_fields=None):
+    def create_index_sql(self, db_type, table_name, fields=None, new_fields=None, foreign_key_dict=None):
 
         def new_field_name_by_id(id_value):
             for f in new_fields:
@@ -565,17 +639,34 @@ class SQL(object):
         db_module = db_modules.get_db_module(db_type)
         index_name = self.f_index_name.value
         if self.f_foreign_index.value:
-            key = self.f_foreign_field.display_text
-            ref_id = self.task.sys_fields.field_by_id(self.f_foreign_field.value, 'f_object')
-            ref = self.task.sys_items.field_by_id(ref_id, 'f_table_name')
-            sql = db_module.create_foreign_index_sql(table_name, index_name, key, ref)
+            if foreign_key_dict:
+                key = foreign_key_dict['key']
+                ref = foreign_key_dict['ref']
+                primary_key = foreign_key_dict['primary_key']
+            else:
+                fields = self.task.sys_fields.copy()
+                fields.set_where(id=self.f_foreign_field.value)
+                fields.open()
+                key = fields.f_field_name.value
+                ref_id = fields.f_object.value
+                items = self.task.sys_items.copy()
+                items.set_where(id=ref_id)
+                items.open()
+                ref = items.f_table_name.value
+                primary_key = items.f_primary_key.value
+                fields.set_where(id=primary_key)
+                fields.open()
+                primary_key = fields.f_field_name.value
+            sql = db_module.create_foreign_index_sql(table_name, index_name, key, ref, primary_key)
         else:
-            index_desc = self.descending.value
             index_fields = self.f_fields.value
             desc = ''
-            if index_desc:
+            if self.descending.value:
                 desc = 'DESC'
-            fields = cPickle.loads(str(index_fields))
+            unique = ''
+            if self.f_unique_index.value:
+                unique = 'UNIQUE'
+            fields = common.load_index_fields(index_fields)
             if new_fields:
                 fields = [new_field_name_by_id(field[0]) for field in fields]
             else:
@@ -585,9 +676,9 @@ class SQL(object):
                 field_str = ', '.join(fields)
             else:
                 field_str = '"' + '", "'.join(fields) + '"'
-            sql = db_module.create_index_sql(index_name, table_name, field_str, desc)
-        print db_module.set_case(sql)
-        return db_module.set_case(sql)
+            sql = db_module.create_index_sql(index_name, table_name, unique, field_str, desc)
+        print sql
+        return sql
 
     def delete_index_sql(self, db_type):
         db_module = db_modules.get_db_module(db_type)
@@ -597,5 +688,5 @@ class SQL(object):
             sql = db_module.delete_foreign_index(table_name, index_name)
         else:
             sql = db_module.delete_index(table_name, index_name)
-        print db_module.set_case(sql)
-        return db_module.set_case(sql)
+        print sql
+        return sql
