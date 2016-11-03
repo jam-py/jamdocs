@@ -837,9 +837,15 @@ function Events8() { // jamdoc.catalogs.doc_editor
 		item.view_form.find("#ok-btn").attr("tabindex", 100).on('click', function() {
 			save_edit(item);
 		});
+		item.view_form.find("#rebuild-btn").attr("tabindex", 98).hide().on('click', function() {
+			item.question('Rebuild the documentation? It may take some time.', function() {
+				preview(item, true);			
+			});
+		});
 		item.view_form.find("#preview-btn").attr("tabindex", 99).hide().on('click', function() {
 			preview(item);
 		});
+	
 		item.view_form.find("#section-btn").click(function() {insert_section(item)});	
 		item.view_form.find("#subsection-btn").click(function() {insert_sub_section(item)});		
 		item.view_form.find("#image-btn").click(function() {insert_image(item)});
@@ -951,6 +957,7 @@ function Events8() { // jamdoc.catalogs.doc_editor
 			else if ('.' + ext === item.task.source_suffix) {		
 	//			item.editor.getSession().setMode("ace/mode/rst");
 				item.view_form.find("#preview-btn").show();
+				item.view_form.find("#rebuild-btn").show();
 			}
 			
 			item.editor.session.setValue(text);   
@@ -1036,14 +1043,17 @@ function Events8() { // jamdoc.catalogs.doc_editor
 		}
 	}
 	
-	function preview(item) {
+	function preview(item, rebuild) {
 		var host = location.protocol + '//' + location.hostname + (location.port ? ':' + location.port: ''),
 			make_info = item.view_form.find("#make_info"),
 			build_info_btn = item.view_form.find("#build-info-btn");
+		if (rebuild === undefined) {
+			rebuild = false;
+		}
 		save_edit(item);
 		build_info_btn.hide().css('color', '#333333');
 		make_info.text('Building project');
-		item.server('make_html', [host, item.relative_path, item.file_name], function(info) {
+		item.server('make_html', [host, item.relative_path, item.file_name, rebuild], function(info) {
 			if (info.error) {
 				item.warning(info.error);
 			}
