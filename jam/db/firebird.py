@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
-
-from __future__ import with_statement
 import sys
-import cPickle
 import fdb
+from werkzeug._compat import text_type, to_bytes, to_unicode
 
+DATABASE = 'FIREBIRD'
 NEED_DATABASE_NAME = True
 NEED_LOGIN = True
 NEED_PASSWORD = True
@@ -13,14 +11,15 @@ NEED_HOST = True
 NEED_PORT = True
 CAN_CHANGE_TYPE = False
 CAN_CHANGE_SIZE = False
-UPPER_CASE = True
 DDL_ROLLBACK = True
+NEED_GENERATOR = True
+
 FROM = '"%s" AS %s'
 LEFT_OUTER_JOIN = 'LEFT OUTER JOIN "%s" AS %s'
 FIELD_AS = 'AS'
 LIKE = 'LIKE'
 
-JAM_TYPES = TEXT, INTEGER, FLOAT, CURRENCY, DATE, DATETIME, BOOLEAN, BLOB = range(1, 9)
+JAM_TYPES = TEXT, INTEGER, FLOAT, CURRENCY, DATE, DATETIME, BOOLEAN, LONGTEXT, KEYS, FILE, IMAGE = range(1, 12)
 FIELD_TYPES = {
     INTEGER: 'INTEGER',
     TEXT: 'VARCHAR',
@@ -29,10 +28,13 @@ FIELD_TYPES = {
     DATE: 'DATE',
     DATETIME: 'TIMESTAMP',
     BOOLEAN: 'INTEGER',
-    BLOB: 'BLOB'
+    LONGTEXT: 'BLOB',
+    KEYS: 'BLOB',
+    FILE: 'VARCHAR(522)',
+    IMAGE: 'VARCHAR(522)'
 }
 
-def connect(database, user, password, host, port, encoding):
+def connect(database, user, password, host, port, encoding, server):
     if not encoding:
         encoding = None
     if not port:
@@ -41,10 +43,11 @@ def connect(database, user, password, host, port, encoding):
         port = int(port)
     return fdb.connect(database=database, user=user, password=password, charset=encoding, host=host, port=port)
 
-def get_lastrowid(cursor):
-    return None
+get_lastrowid = None
 
-def get_select(query, start, end, fields):
+def get_select(query, fields_clause, from_clause, where_clause, group_clause, order_clause, fields):
+    start = fields_clause
+    end = ''.join([from_clause, where_clause, group_clause, order_clause])
     offset = query['__offset']
     limit = query['__limit']
     page = ''
@@ -57,8 +60,9 @@ def process_sql_params(params, cursor):
     for p in params:
         if type(p) == tuple:
             value, data_type = p
-            if data_type == BLOB and type(value) == unicode:
-                value = value.encode('utf-8')
+            if data_type in [LONGTEXT, KEYS]:
+                if type(value) == text_type:
+                    value = to_bytes(value, 'utf-8')
         else:
             value = p
         result.append(value)
@@ -67,7 +71,12 @@ def process_sql_params(params, cursor):
 def process_sql_result(rows):
     result = []
     for row in rows:
-        result.append(list(row))
+        new_row = []
+        for r in row:
+            if isinstance(r, fdb.fbcore.BlobReader):
+                r = to_unicode(r.read(), 'utf-8')
+            new_row.append(r)
+        result.append(new_row)
     return result
 
 def cast_date(date_str):
@@ -79,55 +88,60 @@ def cast_datetime(datetime_str):
 def value_literal(index):
     return '?'
 
-def upper_function():
-    return 'UPPER'
+def convert_like(field_name, val, data_type):
+    return 'UPPER(%s)' % field_name, val.upper()
 
-def create_table_sql(table_name, fields, foreign_fields=None):
+def create_table_sql(table_name, fields, gen_name=None, foreign_fields=None):
     result = []
     primary_key = ''
-    sql = set_case('CREATE TABLE "%s"\n(\n' % table_name)
+    sql = 'CREATE TABLE "%s"\n(\n' % table_name
+    lines = []
     for field in fields:
-        sql += set_case('"%s" %s' % (field['field_name'], FIELD_TYPES[field['data_type']]))
+        line = '"%s" %s' % (field['field_name'], FIELD_TYPES[field['data_type']])
         if field['size'] != 0 and field['data_type'] == TEXT:
-            sql += '(%d)' % field['size']
+            line += '(%d)' % field['size']
         if field['default_value'] and not field['primary_key']:
             if field['data_type'] == TEXT:
-                sql += " DEFAULT '%s'" % field['default_value']
+                line += " DEFAULT '%s'" % field['default_value']
             else:
-                sql += ' DEFAULT %s' % field['default_value']
-        sql +=  ',\n'
+                line += ' DEFAULT %s' % field['default_value']
+        lines.append(line)
         if field['primary_key']:
-            primary_key = set_case(field['field_name'])
-    sql += set_case('CONSTRAINT %s_PR_INDEX PRIMARY KEY ("%s")\n' % \
-        (table_name, primary_key))
+            primary_key = field['field_name']
+    if primary_key:
+        lines.append('CONSTRAINT %s_PR_INDEX PRIMARY KEY ("%s")\n' % \
+            (table_name, primary_key))
+    sql += ',\n'.join(lines)
     sql += ')\n'
     result.append(sql)
-    result.append(set_case('CREATE SEQUENCE "%s_GEN"' % table_name))
+    if primary_key:
+        result.append('CREATE SEQUENCE "%s"' % gen_name)
     return result
 
-def delete_table_sql(table_name):
+def delete_table_sql(table_name, gen_name):
     result = []
-    result.append(set_case('DROP TABLE "%s"' % table_name))
-    result.append(set_case('DROP SEQUENCE "%s_GEN"' % table_name))
+    result.append('DROP TABLE "%s"' % table_name)
+    if gen_name:
+        result.append('DROP SEQUENCE "%s"' % gen_name)
     return result
 
 def create_index_sql(index_name, table_name, unique, fields, desc):
-    return set_case('CREATE %s %s INDEX "%s" ON "%s" (%s)' % \
-        (unique, desc, index_name, table_name, fields))
+    return 'CREATE %s %s INDEX "%s" ON "%s" (%s)' % \
+        (unique, desc, index_name, table_name, fields)
 
 def create_foreign_index_sql(table_name, index_name, key, ref, primary_key):
-    return set_case('ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s(%s)' % \
-        (table_name, index_name, key, ref, primary_key))
+    return 'ALTER TABLE "%s" ADD CONSTRAINT "%s" FOREIGN KEY ("%s") REFERENCES "%s"("%s")' % \
+        (table_name, index_name, key, ref, primary_key)
 
 def delete_index(table_name, index_name):
-    return set_case('DROP INDEX "%s"' % index_name)
+    return 'DROP INDEX "%s"' % index_name
 
 def delete_foreign_index(table_name, index_name):
-    return set_case('ALTER TABLE %s DROP CONSTRAINT %s' % (table_name, index_name))
+    return 'ALTER TABLE "%s" DROP CONSTRAINT "%s"' % (table_name, index_name)
 
 def add_field_sql(table_name, field):
     result = 'ALTER TABLE "%s" ADD "%s" %s'
-    result = set_case(result % (table_name, field['field_name'], FIELD_TYPES[field['data_type']]))
+    result = result % (table_name, field['field_name'], FIELD_TYPES[field['data_type']])
     if field['size']:
         result += '(%d)' % field['size']
     if field['default_value']:
@@ -138,44 +152,86 @@ def add_field_sql(table_name, field):
     return result
 
 def del_field_sql(table_name, field):
-    return set_case('ALTER TABLE "%s" DROP "%s"' % (table_name, field['field_name']))
+    return 'ALTER TABLE "%s" DROP "%s"' % (table_name, field['field_name'])
 
 def change_field_sql(table_name, old_field, new_field):
     result = []
     if FIELD_TYPES[old_field['data_type']] != FIELD_TYPES[new_field['data_type']] \
         or old_field['size'] != new_field['size']:
-        raise Exception, u"Don't know how to change field's size or type of %s" % old_field['field_name']
+        raise Exception(u"Don't know how to change field's size or type of %s, table name %s" % (old_field['field_name'], table_name))
     if old_field['field_name'] != new_field['field_name']:
-        sql = set_case('ALTER TABLE "%s" ALTER "%s" TO "%s"' % \
-            (table_name, old_field['field_name'], new_field['field_name']))
+        sql = 'ALTER TABLE "%s" ALTER "%s" TO "%s"' % \
+            (table_name, old_field['field_name'], new_field['field_name'])
         result.append(sql)
     if old_field['default_value'] != new_field['default_value']:
         if new_field['default_value']:
             if new_field['data_type'] == TEXT:
-                sql = set_case('ALTER TABLE "%s" ALTER "%s" SET DEFAULT' % \
-                    (table_name, new_field['field_name']))
+                sql = 'ALTER TABLE "%s" ALTER "%s" SET DEFAULT' % \
+                    (table_name, new_field['field_name'])
                 sql +=  " '%s'" % new_field['default_value']
             else:
-                sql = set_case('ALTER TABLE "%s" ALTER "%s" SET DEFAULT %s' % \
-                    (table_name, new_field['field_name'], new_field['default_value']))
+                sql = 'ALTER TABLE "%s" ALTER "%s" SET DEFAULT %s' % \
+                    (table_name, new_field['field_name'], new_field['default_value'])
         else:
-            sql = set_case('ALTER TABLE "%s" ALTER "%s" DROP DEFAULT' % \
-                (table_name, new_field['field_name']))
+            sql = 'ALTER TABLE "%s" ALTER "%s" DROP DEFAULT' % \
+                (table_name, new_field['field_name'])
         result.append(sql)
     return result
 
-def set_case(string):
-    return string.upper()
+def next_sequence_value_sql(gen_name):
+    return 'SELECT NEXT VALUE FOR "%s" FROM RDB$DATABASE' % gen_name
 
-def get_sequence_name(table_name):
-    return set_case('%s_GEN' % table_name)
+def restart_sequence_sql(gen_name, value):
+    return 'ALTER SEQUENCE %s RESTART WITH %d' % (gen_name, value)
 
-def next_sequence_value_sql(table_name):
-    return set_case('SELECT NEXT VALUE FOR "%s" FROM RDB$DATABASE' % \
-        get_sequence_name(table_name))
+def identifier_case(name):
+    return name.upper()
 
-def restart_sequence_sql(table_name, value):
-    return set_case('ALTER SEQUENCE %s RESTART WITH %d' % \
-        (get_sequence_name(table_name), value))
+def get_table_names(connection):
+    cursor = connection.cursor()
+    cursor.execute('''
+        SELECT RDB$RELATION_NAME FROM RDB$RELATIONS
+        WHERE (RDB$SYSTEM_FLAG <> 1 OR RDB$SYSTEM_FLAG IS NULL)
+        AND RDB$VIEW_BLR IS NULL
+    ''')
+    result = cursor.fetchall()
+    return [r[0] for r in result]
 
-
+def get_table_info(connection, table_name, db_name):
+    cursor = connection.cursor()
+    sql = '''
+       SELECT RF.RDB$FIELD_NAME AS COLUMN_NAME,
+            CASE F.RDB$FIELD_TYPE
+                WHEN 7 THEN 'SMALLINT'
+                WHEN 8 THEN 'INTEGER'
+                WHEN 10 THEN 'FLOAT'
+                WHEN 12 THEN 'DATE'
+                WHEN 13 THEN 'TIME'
+                WHEN 14 THEN 'CHAR'
+                WHEN 16 THEN 'BIGINT'
+                WHEN 27 THEN 'DOUBLE PRECISION'
+                WHEN 35 THEN 'TIMESTAMP'
+                WHEN 37 THEN 'VARCHAR'
+                WHEN 261 THEN 'BLOB'
+            END AS DATA_TYPE,
+            F.RDB$FIELD_LENGTH,
+            F.RDB$DEFAULT_VALUE
+        FROM RDB$FIELDS F
+            JOIN RDB$RELATION_FIELDS RF ON RF.RDB$FIELD_SOURCE = F.RDB$FIELD_NAME
+        WHERE RF.RDB$RELATION_NAME = '%s'
+    '''
+    cursor.execute(sql % table_name)
+    result = cursor.fetchall()
+    fields = []
+    for (field_name, data_type, size, default_value) in result:
+        data_type = data_type.strip()
+        if not data_type in ['VARCHAR', 'CHAR']:
+            size = 0
+        fields.append({
+            'field_name': field_name.strip(),
+            'data_type': data_type,
+            'size': size,
+            'default_value': default_value,
+            'pk': False
+        })
+    return {'fields': fields, 'field_types': FIELD_TYPES}

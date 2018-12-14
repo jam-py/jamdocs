@@ -13,7 +13,7 @@ import codecs
 import mimetypes
 from copy import deepcopy
 from itertools import repeat
-from collections import Container, Iterable, Mapping, MutableSet
+from collections import Container, Iterable, MutableSet
 
 from werkzeug._internal import _missing, _empty_stream
 from werkzeug._compat import iterkeys, itervalues, iteritems, iterlists, \
@@ -52,7 +52,14 @@ def native_itermethods(names):
     if not PY2:
         return lambda x: x
 
-    def setmethod(cls, name):
+    def setviewmethod(cls, name):
+        viewmethod_name = 'view%s' % name
+        viewmethod = lambda self, *a, **kw: ViewItems(self, name, 'view_%s' % name, *a, **kw)
+        viewmethod.__doc__ = \
+            '"""`%s()` object providing a view on %s"""' % (viewmethod_name, name)
+        setattr(cls, viewmethod_name, viewmethod)
+
+    def setitermethod(cls, name):
         itermethod = getattr(cls, name)
         setattr(cls, 'iter%s' % name, itermethod)
         listmethod = lambda self, *a, **kw: list(itermethod(self, *a, **kw))
@@ -62,7 +69,8 @@ def native_itermethods(names):
 
     def wrap(cls):
         for name in names:
-            setmethod(cls, name)
+            setitermethod(cls, name)
+            setviewmethod(cls, name)
         return cls
     return wrap
 
@@ -90,17 +98,11 @@ class ImmutableListMixin(object):
     def __delitem__(self, key):
         is_immutable(self)
 
-    def __delslice__(self, i, j):
-        is_immutable(self)
-
     def __iadd__(self, other):
         is_immutable(self)
     __imul__ = __iadd__
 
     def __setitem__(self, key, value):
-        is_immutable(self)
-
-    def __setslice__(self, i, j, value):
         is_immutable(self)
 
     def append(self, item):
@@ -297,10 +299,13 @@ class TypeConversionDict(dict):
         """
         try:
             rv = self[key]
-            if type is not None:
+        except KeyError:
+            return default
+        if type is not None:
+            try:
                 rv = type(rv)
-        except (KeyError, ValueError):
-            rv = default
+            except ValueError:
+                rv = default
         return rv
 
 
@@ -321,6 +326,25 @@ class ImmutableTypeConversionDict(ImmutableDictMixin, TypeConversionDict):
 
     def __copy__(self):
         return self
+
+
+class ViewItems(object):
+
+    def __init__(self, multi_dict, method, repr_name, *a, **kw):
+        self.__multi_dict = multi_dict
+        self.__method = method
+        self.__repr_name = repr_name
+        self.__a = a
+        self.__kw = kw
+
+    def __get_items(self):
+        return getattr(self.__multi_dict, self.__method)(*self.__a, **self.__kw)
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__repr_name, list(self.__get_items()))
+
+    def __iter__(self):
+        return iter(self.__get_items())
 
 
 @native_itermethods(['keys', 'values', 'items', 'lists', 'listvalues'])
@@ -373,6 +397,8 @@ class MultiDict(TypeConversionDict):
             tmp = {}
             for key, value in iteritems(mapping):
                 if isinstance(value, (tuple, list)):
+                    if len(value) == 0:
+                        continue
                     value = list(value)
                 else:
                     value = [value]
@@ -399,7 +425,9 @@ class MultiDict(TypeConversionDict):
         :raise KeyError: if the key does not exist.
         """
         if key in self:
-            return dict.__getitem__(self, key)[0]
+            lst = dict.__getitem__(self, key)
+            if len(lst) > 0:
+                return lst[0]
         raise exceptions.BadRequestKeyError(key)
 
     def __setitem__(self, key, value):
@@ -490,9 +518,9 @@ class MultiDict(TypeConversionDict):
         [1, 2, 3]
 
         :param key: The key to be looked up.
-        :param default: An iterable of default values.  It is either copied
-                        (in case it was a list) or converted into a list
-                        before returned.
+        :param default_list: An iterable of default values.  It is either copied
+                             (in case it was a list) or converted into a list
+                             before returned.
         :return: a :class:`list`
         """
         if key not in self:
@@ -603,7 +631,12 @@ class MultiDict(TypeConversionDict):
                         not in the dictionary.
         """
         try:
-            return dict.pop(self, key)[0]
+            lst = dict.pop(self, key)
+
+            if len(lst) == 0:
+                raise exceptions.BadRequestKeyError()
+
+            return lst[0]
         except KeyError as e:
             if default is not _missing:
                 return default
@@ -613,6 +646,10 @@ class MultiDict(TypeConversionDict):
         """Pop an item from the dict."""
         try:
             item = dict.popitem(self)
+
+            if len(item[1]) == 0:
+                raise exceptions.BadRequestKeyError()
+
             return (item[0], item[1][0])
         except KeyError as e:
             raise exceptions.BadRequestKeyError(str(e))
@@ -724,6 +761,8 @@ class OrderedMultiDict(MultiDict):
             if other.getlist(key) != values:
                 return False
         return True
+
+    __hash__ = None
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -867,7 +906,7 @@ def _unicodify_header_value(value):
 
 
 @native_itermethods(['keys', 'values', 'items'])
-class Headers(Mapping):
+class Headers(object):
 
     """An object that stores some headers.  It has a dict-like interface
     but is ordered and can store the same keys multiple times.
@@ -931,6 +970,8 @@ class Headers(Mapping):
     def __eq__(self, other):
         return other.__class__ is self.__class__ and \
             set(other._list) == set(self._list)
+
+    __hash__ = None
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -1177,7 +1218,7 @@ class Headers(Mapping):
             return
         self._list[idx + 1:] = [t for t in listiter if t[0].lower() != ikey]
 
-    def setdefault(self, key, value):
+    def setdefault(self, key, default):
         """Returns the value for the key if it is in the dict, otherwise it
         returns `default` and sets that value for `key`.
 
@@ -1187,8 +1228,8 @@ class Headers(Mapping):
         """
         if key in self:
             return self[key]
-        self.set(key, value)
-        return value
+        self.set(key, default)
+        return default
 
     def __setitem__(self, key, value):
         """Like :meth:`set` but also supports index/slice based setting."""
@@ -1300,9 +1341,13 @@ class EnvironHeaders(ImmutableHeadersMixin, Headers):
     def __eq__(self, other):
         return self.environ is other.environ
 
+    __hash__ = None
+
     def __getitem__(self, key, _get_mode=False):
         # _get_mode is a no-op for this class as there is no index but
         # used because get() calls it.
+        if not isinstance(key, string_types):
+            raise KeyError(key)
         key = key.upper().replace('-', '_')
         if key in ('CONTENT_TYPE', 'CONTENT_LENGTH'):
             return _unicodify_header_value(self.environ[key])
@@ -1319,7 +1364,7 @@ class EnvironHeaders(ImmutableHeadersMixin, Headers):
                ('HTTP_CONTENT_TYPE', 'HTTP_CONTENT_LENGTH'):
                 yield (key[5:].replace('_', '-').title(),
                        _unicodify_header_value(value))
-            elif key in ('CONTENT_TYPE', 'CONTENT_LENGTH'):
+            elif key in ('CONTENT_TYPE', 'CONTENT_LENGTH') and value:
                 yield (key.replace('_', '-').title(),
                        _unicodify_header_value(value))
 
@@ -1561,7 +1606,8 @@ class ImmutableOrderedMultiDict(ImmutableMultiDictMixin, OrderedMultiDict):
 class Accept(ImmutableList):
 
     """An :class:`Accept` object is just a list subclass for lists of
-    ``(value, quality)`` tuples.  It is automatically sorted by quality.
+    ``(value, quality)`` tuples.  It is automatically sorted by specificity
+    and quality.
 
     All :class:`Accept` objects work similar to a list but provide extra
     functionality for working with the data.  Containment checks are
@@ -1597,8 +1643,13 @@ class Accept(ImmutableList):
             list.__init__(self, values)
         else:
             self.provided = True
-            values = sorted(values, key=lambda x: (x[1], x[0]), reverse=True)
+            values = sorted(values, key=lambda x: (self._specificity(x[0]), x[1], x[0]),
+                            reverse=True)
             list.__init__(self, values)
+
+    def _specificity(self, value):
+        """Returns a tuple describing the value's specificity."""
+        return value != '*',
 
     def _value_matches(self, value, item):
         """Check if a value matches a given accept item."""
@@ -1680,24 +1731,36 @@ class Accept(ImmutableList):
     def __str__(self):
         return self.to_header()
 
+    def _best_single_match(self, match):
+        for client_item, quality in self:
+            if self._value_matches(match, client_item):
+                # self is sorted by specificity descending, we can exit
+                return client_item, quality
+
     def best_match(self, matches, default=None):
         """Returns the best match from a list of possible matches based
-        on the quality of the client.  If two items have the same quality,
-        the one is returned that comes first.
+        on the specificity and quality of the client. If two items have the
+        same quality and specificity, the one is returned that comes first.
 
         :param matches: a list of matches to check for
         :param default: the value that is returned if none match
         """
-        best_quality = -1
         result = default
+        best_quality = -1
+        best_specificity = (-1,)
         for server_item in matches:
-            for client_item, quality in self:
-                if quality <= best_quality:
-                    break
-                if self._value_matches(server_item, client_item) \
-                   and quality > 0:
-                    best_quality = quality
-                    result = server_item
+            match = self._best_single_match(server_item)
+            if not match:
+                continue
+            client_item, quality = match
+            specificity = self._specificity(client_item)
+            if quality <= 0 or quality < best_quality:
+                continue
+            # better quality or same quality but more specific => better match
+            if quality > best_quality or specificity > best_specificity:
+                result = server_item
+                best_quality = quality
+                best_specificity = specificity
         return result
 
     @property
@@ -1712,6 +1775,9 @@ class MIMEAccept(Accept):
     """Like :class:`Accept` but with special methods and behavior for
     mimetypes.
     """
+
+    def _specificity(self, value):
+        return tuple(x != '*' for x in value.split('/', 1))
 
     def _value_matches(self, value, item):
         def _normalize(x):
@@ -2131,6 +2197,10 @@ class ETags(Container, Iterable):
         """Check if an etag is weak."""
         return etag in self._weak
 
+    def is_strong(self, etag):
+        """Check if an etag is strong."""
+        return etag in self._strong
+
     def contains_weak(self, etag):
         """Check if an etag is part of the set including weak and strong tags."""
         return self.is_weak(etag) or self.contains(etag)
@@ -2138,11 +2208,10 @@ class ETags(Container, Iterable):
     def contains(self, etag):
         """Check if an etag is part of the set ignoring weak tags.
         It is also possible to use the ``in`` operator.
-
         """
         if self.star_tag:
             return True
-        return etag in self._strong
+        return self.is_strong(etag)
 
     def contains_raw(self, etag):
         """When passed a quoted tag it will check if this tag is part of the
@@ -2269,6 +2338,17 @@ class Range(object):
             else:
                 ranges.append('%s-%s' % (begin, end - 1))
         return '%s=%s' % (self.units, ','.join(ranges))
+
+    def to_content_range_header(self, length):
+        """Converts the object into `Content-Range` HTTP header,
+        based on given length
+        """
+        range_for_length = self.range_for_length(length)
+        if range_for_length is not None:
+            return '%s %d-%d/%d' % (self.units,
+                                    range_for_length[0],
+                                    range_for_length[1] - 1, length)
+        return None
 
     def __str__(self):
         return self.to_header()
@@ -2403,17 +2483,10 @@ class Authorization(ImmutableDictMixin, dict):
         The opaque header from the server returned unchanged by the client.
         It is recommended that this string be base64 or hexadecimal data.
         Digest auth only.''')
-
-    @property
-    def qop(self):
-        """Indicates what "quality of protection" the client has applied to
-        the message for HTTP digest auth."""
-        def on_update(header_set):
-            if not header_set and 'qop' in self:
-                del self['qop']
-            elif header_set:
-                self['qop'] = header_set.to_header()
-        return parse_set_header(self.get('qop'), on_update)
+    qop = property(lambda x: x.get('qop'), doc='''
+        Indicates what "quality of protection" the client has applied to
+        the message for HTTP digest auth. Note that this is a single token,
+        not a quoted list of alternatives as in WWW-Authenticate.''')
 
 
 class WWWAuthenticate(UpdateDictMixin, dict):

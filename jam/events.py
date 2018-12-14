@@ -1,6 +1,4 @@
-# -*- coding:utf-8 -*-
-
-import common
+import jam.common as common
 
 # Client events
 
@@ -10,11 +8,11 @@ task_client_events = \
         'on_view_form_created': 'item',
         'on_edit_form_created': 'item',
         'on_filter_form_created': 'item',
-        'on_param_form_created': 'item',
+        'on_param_form_created': 'report',
         'on_view_form_shown': 'item',
         'on_edit_form_shown': 'item',
         'on_filter_form_shown': 'item',
-        'on_param_form_shown': 'item',
+        'on_param_form_shown': 'report',
         'on_view_form_close_query': 'item',
         'on_edit_form_close_query': 'item',
         'on_filter_form_close_query': 'item',
@@ -22,7 +20,7 @@ task_client_events = \
         'on_view_form_closed': 'item',
         'on_edit_form_closed': 'item',
         'on_filter_form_closed': 'item',
-        'on_param_form_closed': 'item',
+        'on_param_form_closed': 'report',
         'on_view_form_keyup': 'item, event',
         'on_view_form_keydown': 'item, event',
         'on_edit_form_keyup': 'item, event',
@@ -41,6 +39,10 @@ group_client_events = \
         'on_view_form_close_query': 'item',
         'on_edit_form_close_query': 'item',
         'on_filter_form_close_query': 'item',
+        'on_view_form_closed': 'item',
+        'on_edit_form_closed': 'item',
+        'on_filter_form_closed': 'item',
+        'on_param_form_closed': 'report',
         'on_view_form_keyup': 'item, event',
         'on_view_form_keydown': 'item, event',
         'on_edit_form_keyup': 'item, event',
@@ -49,9 +51,10 @@ group_client_events = \
 
 reports_client_events = \
     {
-        'on_param_form_created': 'item',
-        'on_param_form_shown': 'item',
+        'on_param_form_created': 'report',
+        'on_param_form_shown': 'report',
         'on_param_form_close_query': 'report',
+        'on_param_form_closed': 'report',
         'on_open_report': 'report, url',
         'on_before_print_report': 'report'
     }
@@ -66,6 +69,10 @@ detail_client_events = \
         'on_filter_form_shown': 'item',
         'on_view_form_close_query': 'item',
         'on_edit_form_close_query': 'item',
+        'on_filter_form_close_query': 'item',
+        'on_view_form_closed': 'item',
+        'on_edit_form_closed': 'item',
+        'on_filter_form_closed': 'item',
         'on_view_form_keyup': 'item, event',
         'on_view_form_keydown': 'item, event',
         'on_edit_form_keyup': 'item, event',
@@ -93,17 +100,19 @@ detail_client_events = \
         'on_filter_changed': 'filter',
         'on_filter_select_value': 'field, lookup_item',
         'on_field_validate': 'field',
-        'on_field_get_text': 'field'
+        'on_field_get_text': 'field',
+        'on_field_get_html': 'field'
     }
 
 item_client_events = detail_client_events
 item_client_events['on_before_apply'] = 'item'
 item_client_events['on_after_apply'] = 'item'
+item_client_events['on_detail_changed'] = 'item, detail'
 
 report_client_events = \
     {
-        'on_param_form_created': 'item',
-        'on_param_form_shown': 'item',
+        'on_param_form_created': 'report',
+        'on_param_form_shown': 'report',
         'on_param_form_close_query': 'report',
         'on_before_print_report': 'report',
         'on_open_report': 'report, url',
@@ -115,15 +124,13 @@ report_client_events = \
 task_server_events = \
     {
         'on_created': 'task',
-        'on_open': 'item, params, user_info, enviroment',
-        'on_count': 'item, params, user_info, enviroment',
-        'on_apply': 'item, delta, params, privileges, user_info, enviroment'
-
-        #~ 'on_login': 'task, login, password_hash, env',
-        #~ 'on_get_user_info': 'task, user_uuid, env',
-        #~ 'on_logout': 'task, user_uuid, env',
-        #~ 'on_ext_request': 'task, request, params, env',
-        #~ 'on_request': 'task, user_info, env, request, item, params, ext'
+        'on_login': 'task, login, password, ip, session_uuid',
+        'on_open': 'item, params',
+        #~ 'on_count': 'item, params',
+        'on_apply': 'item, delta, params',
+        'on_ext_request': 'task, request, params'
+        #~ 'on_before_request': 'item, request, params'
+        #~ 'on_after_request': 'item, request, params, duration'
     }
 
 group_server_events = \
@@ -137,13 +144,13 @@ reports_server_events = \
 
 detail_server_events = \
     {
-        'on_open': 'item, params, user_info, enviroment',
-        'on_count': 'item, params, user_info, enviroment',
+        'on_open': 'item, params',
+        #~ 'on_count': 'item, params',
 #        'on_field_get_text': 'field'
     }
 
 item_server_events = detail_server_events
-item_server_events['on_apply'] = 'item, delta, params, privileges, user_info, enviroment'
+item_server_events['on_apply'] = 'item, delta, params'
 
 report_server_events = \
     {

@@ -21,6 +21,10 @@ def _iter_module_files():
             continue
         filename = getattr(module, '__file__', None)
         if filename:
+            if os.path.isdir(filename) and \
+               os.path.exists(os.path.join(filename, "__init__.py")):
+                filename = os.path.join(filename, "__init__.py")
+
             old = None
             while not os.path.isfile(filename):
                 old = filename
@@ -35,7 +39,9 @@ def _iter_module_files():
 
 def _find_observable_paths(extra_files=None):
     """Finds all paths that should be observed."""
-    rv = set(os.path.abspath(x) for x in sys.path)
+    rv = set(os.path.dirname(os.path.abspath(x))
+             if os.path.isfile(x) else os.path.abspath(x)
+             for x in sys.path)
 
     for filename in extra_files or ():
         rv.add(os.path.dirname(os.path.abspath(filename)))
@@ -48,6 +54,23 @@ def _find_observable_paths(extra_files=None):
         rv.add(os.path.dirname(fn))
 
     return _find_common_roots(rv)
+
+
+def _get_args_for_reloading():
+    """Returns the executable. This contains a workaround for windows
+    if the executable is incorrectly reported to not have the .exe
+    extension which can cause bugs on reloading.
+    """
+    rv = [sys.executable]
+    py_script = sys.argv[0]
+    if os.name == 'nt' and not os.path.exists(py_script) and \
+       os.path.exists(py_script + '.exe'):
+        py_script += '.exe'
+    if os.path.splitext(rv[0])[1] == '.exe' and os.path.splitext(py_script)[1] == '.exe':
+        rv.pop(0)
+    rv.append(py_script)
+    rv.extend(sys.argv[1:])
+    return rv
 
 
 def _find_common_roots(paths):
@@ -93,7 +116,7 @@ class ReloaderLoop(object):
         """
         while 1:
             _log('info', ' * Restarting with %s' % self.name)
-            args = [sys.executable] + sys.argv
+            args = _get_args_for_reloading()
             new_environ = os.environ.copy()
             new_environ['WERKZEUG_RUN_MAIN'] = 'true'
 
@@ -154,9 +177,7 @@ class WatchdogReloaderLoop(ReloaderLoop):
                 self.trigger_reload(filename)
             dirname = os.path.dirname(filename)
             if dirname.startswith(tuple(self.observable_paths)):
-                if filename.endswith(('.pyc', '.pyo')):
-                    self.trigger_reload(filename[:-1])
-                elif filename.endswith('.py'):
+                if filename.endswith(('.pyc', '.pyo', '.py')):
                     self.trigger_reload(filename)
 
         class _CustomHandler(FileSystemEventHandler):
@@ -197,26 +218,30 @@ class WatchdogReloaderLoop(ReloaderLoop):
         observer = self.observer_class()
         observer.start()
 
-        while not self.should_reload:
-            to_delete = set(watches)
-            paths = _find_observable_paths(self.extra_files)
-            for path in paths:
-                if path not in watches:
-                    try:
-                        watches[path] = observer.schedule(
-                            self.event_handler, path, recursive=True)
-                    except OSError:
-                        # Clear this path from list of watches We don't want
-                        # the same error message showing again in the next
-                        # iteration.
-                        watches[path] = None
-                to_delete.discard(path)
-            for path in to_delete:
-                watch = watches.pop(path, None)
-                if watch is not None:
-                    observer.unschedule(watch)
-            self.observable_paths = paths
-            self._sleep(self.interval)
+        try:
+            while not self.should_reload:
+                to_delete = set(watches)
+                paths = _find_observable_paths(self.extra_files)
+                for path in paths:
+                    if path not in watches:
+                        try:
+                            watches[path] = observer.schedule(
+                                self.event_handler, path, recursive=True)
+                        except OSError:
+                            # Clear this path from list of watches We don't want
+                            # the same error message showing again in the next
+                            # iteration.
+                            watches[path] = None
+                    to_delete.discard(path)
+                for path in to_delete:
+                    watch = watches.pop(path, None)
+                    if watch is not None:
+                        observer.unschedule(watch)
+                self.observable_paths = paths
+                self._sleep(self.interval)
+        finally:
+            observer.stop()
+            observer.join()
 
         sys.exit(3)
 

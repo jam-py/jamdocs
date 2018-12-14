@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
-
 import sys
 import logging
 
-import lang.langs as langs
-import common
+import jam
+import jam.langs as langs
+import jam.common as common
+from werkzeug._compat import iteritems, iterkeys
 
 class AbortException(Exception):
     pass
@@ -12,8 +12,12 @@ class AbortException(Exception):
 class DebugException(Exception):
     pass
 
+class DictObject(object):
+    def __init__(self, d):
+        self.__dict__ = d
+
 class AbstractItem(object):
-    def __init__(self, owner, name='', caption='', visible = True, item_type_id=0, js_filename=''):
+    def __init__(self, task, owner, name='', caption='', visible = True, item_type_id=0, js_filename=''):
         self.owner = owner
         self.item_name = name
         self.items = []
@@ -26,11 +30,45 @@ class AbstractItem(object):
                 owner.items.append(self)
                 if not hasattr(owner, self.item_name):
                     setattr(owner, self.item_name, self)
-            self.task = owner.task
+        if task:
+            self.task = task
         self.item_caption = caption
         self.visible = visible
         self.item_type_id = item_type_id
         self._loader = TracebackLoader(self)
+
+    def task_locked(self):
+        try:
+            owner = self.owner
+            if self.master:
+                owner = self.master.owner
+            if owner:
+                app = self.task.app
+                if app.task == self.task:
+                    return app.task_locked()
+        except:
+            pass
+
+    def __setattr__(self, name, value):
+        if self.task_locked():
+            raise Exception(self.task.language('server_tree_immutable') + \
+                ' Item: "%s", Attribute: "%s"' % (self.item_name, name))
+        super(AbstractItem, self).__setattr__(name, value)
+
+    @property
+    def session(self):
+        if hasattr(jam.context, 'session'):
+            return jam.context.session
+
+    @property
+    def environ(self):
+        if hasattr(jam.context, 'environ'):
+            return jam.context.environ
+
+    @property
+    def user_info(self):
+        if self.session:
+            return DictObject(self.session['user_info'])
 
     def find(self, name):
         for item in self.items:
@@ -99,18 +137,18 @@ class AbstractItem(object):
 
     def store_handlers(self):
         result = {}
-        for key, value in self.__dict__.items():
+        for key, value in iteritems(self.__dict__):
             if key[0:3] == 'on_':
                 result[key] = self.__dict__[key]
         return result
 
     def clear_handlers(self):
-        for key, value in self.__dict__.items():
+        for key, value in iteritems(self.__dict__):
             if key[0:3] == 'on_':
                 self.__dict__[key] = None
 
     def load_handlers(self, handlers):
-        for key, value in handlers.items():
+        for key, value in iteritems(handlers):
             self.__dict__[key] = handlers[key]
 
     def get_master_field(self, fields, master_field):
@@ -119,7 +157,7 @@ class AbstractItem(object):
                 return field
 
     def abort(self, message=''):
-        raise AbortException, message
+        raise AbortException(message)
 
     def register(self, func):
         setattr(self, func.__name__, func)
@@ -127,18 +165,53 @@ class AbstractItem(object):
     def load_code(self):
         return self.item_name
 
+    def check_operation(self, operation):
+        try:
+            app = self.task.app
+            if not app.admin.safe_mode:# or self.master:
+                return True
+            elif self.task == app.admin:
+                if app.admin.safe_mode:
+                    session = self.session
+                    if session and session['user_info']['admin']:
+                        return True
+                else:
+                    return True
+            else:
+                session = self.session
+                if session:
+                    role_id = session['user_info']['role_id']
+                    privileges = self.task.app.get_privileges(role_id)
+                    priv_dic = privileges.get(self.ID)
+                    if priv_dic:
+                        return priv_dic[operation]
+        except:
+            return False
+
+    def can_view(self):
+        return self.check_operation('can_view')
+
+
 class AbstrGroup(AbstractItem):
     pass
 
 
 class AbstrTask(AbstractItem):
     def __init__(self, owner, name, caption, visible = True, item_type_id=0, js_filename=''):
-        AbstractItem.__init__(self, owner, name, caption, visible, item_type_id, js_filename)
+        AbstractItem.__init__(self, self, owner, name, caption, visible, item_type_id, js_filename)
         self.task = self
         self.__language = None
         self.item_type_id = common.TASK_TYPE
         self.history_item = None
         self.log = None
+        #~ self.languages = langs.get_langs()
+
+    def task_locked(self):
+        try:
+            if self.app.task == self:
+                return self.app.task_locked()
+        except:
+            pass
 
     def write_info(self, info):
         super(AbstrTask, self).write_info(info)
@@ -178,42 +251,32 @@ class AbstrTask(AbstractItem):
                     for detail in item.details:
                         self.compile_item(detail)
 
-    def get_language(self):
-        return self.__language
+    def update_lang(self, value):
+        self.lang = langs.get_lang_dict(self, value)
+        self.locale = langs.get_locale_dict(self, value)
+        common.SETTINGS['LANGUAGE'] = value
+        common.LOCALE = self.locale
+        for key in iterkeys(common.LOCALE):
+            common.__dict__[key] = common.LOCALE[key]
+
 
     def set_language(self, value):
-        self.__language = value
-        self.lang = langs.get_lang_dict(value)
-        common.SETTINGS['LANGUAGE'] = value
+        if not value:
+            value = 1
+        if self.__language != value:
+            self.update_lang(value)
+            self.__language = value
 
-    language = property (get_language, set_language)
+    def language(self, key):
+        return self.lang.get(key)
 
     def get_settings(self):
         return common.SETTINGS
 
-    def init_locale(self):
-        import locale
-        result = {}
-        try:
-            locale.setlocale(locale.LC_ALL, '')
-            loc = locale.localeconv()
-            for setting in common.LOCALE_SETTINGS:
-                try:
-                    common.SETTINGS[setting] = loc['setting'.lower()]
-                except:
-                    common.SETTINGS[setting] = common.DEFAULT_SETTINGS[setting]
-        except:
-            pass
-        try:
-            common.SETTINGS['D_FMT'] = locale.nl_langinfo(locale.D_FMT)
-        except:
-            common.SETTINGS['D_FMT'] = '%Y-%m-%d'
-        common.SETTINGS['D_T_FMT'] = '%s %s' % (common.D_FMT, '%H:%M')
-
 class AbstrItem(AbstractItem):
-    def __init__(self, owner, name, caption, visible = True, item_type_id=0, js_filename=''):
-        AbstractItem.__init__(self, owner, name, caption, visible, item_type_id, js_filename)
-        if not hasattr(self.task, self.item_name):
+    def __init__(self, task, owner, name, caption, visible = True, item_type_id=0, js_filename=''):
+        AbstractItem.__init__(self, task, owner, name, caption, visible, item_type_id, js_filename)
+        if self.owner and not hasattr(self.task, self.item_name):
             setattr(self.task, self.item_name, self)
 
     def write_info(self, info):
@@ -224,9 +287,14 @@ class AbstrItem(AbstractItem):
         info['default_order'] = self._order_by
         info['primary_key'] = self._primary_key
         info['deleted_flag'] = self._deleted_flag
+        info['virtual_table'] = self.virtual_table
         info['master_id'] = self._master_id
         info['master_rec_id'] = self._master_rec_id
         info['keep_history'] = self.keep_history
+        info['lock_on_edit'] = self.lock_on_edit
+        info['view_params'] = self._view_list
+        info['edit_params'] = self._edit_list
+        info['virtual_table'] = self.virtual_table
 
     def read_info(self, info):
         super(AbstrItem, self).read_info(info)
@@ -238,10 +306,22 @@ class AbstrItem(AbstractItem):
     def bind_item(self):
         self.prepare_fields()
         self.prepare_filters()
-        self.fields = list(self._fields)
+
+    def can_create(self):
+        return self.check_operation('can_create')
+
+    def can_edit(self):
+        return self.check_operation('can_edit')
+
+    def can_delete(self):
+        return self.check_operation('can_delete')
 
 
 class AbstrDetail(AbstrItem):
+
+    def write_info(self, info):
+        super(AbstrDetail, self).write_info(info)
+        info['prototype_ID'] = self.prototype.ID
 
     def read_info(self, info):
         super(AbstrDetail, self).read_info(info)
@@ -251,8 +331,8 @@ class AbstrDetail(AbstrItem):
 
 
 class AbstrReport(AbstractItem):
-    def __init__(self, owner, name, caption, visible = True, item_type_id=0, js_filename=''):
-        AbstractItem.__init__(self, owner, name, caption, visible, item_type_id, js_filename)
+    def __init__(self, task, owner, name, caption, visible = True, item_type_id=0, js_filename=''):
+        AbstractItem.__init__(self, task, owner, name, caption, visible, item_type_id, js_filename)
         if not hasattr(self.task, self.item_name):
             setattr(self.task, self.item_name, self)
 

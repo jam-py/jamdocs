@@ -2,13 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Jam.py shell for Sphinx</title>
+    <title>Jam.py interface for Sphinx</title>
+    <link rel="icon" href="/jam/img/j.png" type="image/png">
+    
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
     <link href="/jam/css/bootstrap.css" rel="stylesheet">
     <link href="/jam/css/bootstrap-responsive.css" rel="stylesheet">
     <link href="/jam/css/bootstrap-modal.css" rel="stylesheet">
     <link href="/jam/css/datepicker.css" rel="stylesheet">
-    <link href="/jam/css/jam.css" rel="stylesheet">
+    <link href="/jam/css/jam12.css" rel="stylesheet">
     <link href="/css/project.css" rel="stylesheet">
     <link href="/static/css/font-awesome.min.css" rel="stylesheet">        
   </head>
@@ -18,7 +21,7 @@
     <div class="container">
         <div class="row-fluid">
             <div class="span4">
-                <h3 id="title" class="muted">Jam.py shell for <a href="http://sphinx-doc.org/" target="_blank">Sphinx</a></h3>
+                <h3 id="title" class="muted">Jam.py interface for <a href="http://sphinx-doc.org/" target="_blank">Sphinx</a></h3>
             </div>
             <div class="span4">
                 <h3 id="jam-link" class="muted text-center">Powered by <a href="http://jam-py.com/" target="_blank">Jam.py</a></h3>
@@ -35,91 +38,93 @@
 
     <div class="templates" style="display: none">
 
-        <div class="catalogs-view">
-            <div class="modal-body">
-                <div class="view-title">
-                    <div class="row-fluid">
-                        <div id="title-left" class="span8">
-                        </div>
-                        <div id="title-right" class="span4">
-                            <form class="form-inline pull-right" style="margin: 6px 0px;">
-                                <label  class="control-label" for="input-find" style="margin: 0px 10px;">Search</label>
-                                <input id="input-find" type="text" class="input-medium search-query">
-                            </form>
-                        </div>
-                    </div>
-                </div>
-                <div class="view-table">
-                </div>
+        <div class="default-view">
+            <div class="form-body">
+                <div class="view-table"></div>
+                <div class="view-detail"></div>
             </div>
-            <div class="modal-footer">
-                <button id="delete-btn" class="btn pull-left" type="button"><i class="icon-trash"></i> Delete<small class="muted">&nbsp;[Ctrl+Del]</small></button>
-                <button id="new-btn" class="btn pull-right" type="button"><i class="icon-plus"></i> New<small class="muted">&nbsp;[Ctrl+Ins]</small></button>
-                <button id="edit-btn" class="btn pull-right" type="button"><i class="icon-edit"></i> Edit</button>
-                <div id="report-btn" class="btn-group dropup pull-right">
-                    <a class="btn dropdown-toggle" data-toggle="dropdown" href="#">
-                        <i class="icon-print"></i> Reports
-                        <span class="caret"></span>
-                    </a>
-                    <ul class="dropdown-menu bottom-up">
-                    </ul>
-                </div>
+            <div class="form-footer">
+                <button id="delete-btn" class="btn expanded-btn pull-left" type="button">
+                    <i class="icon-trash"></i> Delete<small class="muted">&nbsp;[Ctrl+Del]</small>
+                </button>
+                <button id="edit-btn" class="btn expanded-btn" type="button">
+                    <i class="icon-edit"></i> Edit
+                </button>
+                <button id="new-btn" class="btn expanded-btn" type="button">
+                    <i class="icon-plus"></i> New<small class="muted">&nbsp;[Ctrl+Ins]</small>
+                </button>
             </div>
         </div>
 
-        <div class="journals-view tables-view">
-            <div class="modal-body">
-                <div class="view-title">
-                    <div class="row-fluid">
-                        <div id="title-left" class="span8"></div>
-                        <div id="title-right" class="span4"></div>
-                    </div>
-                </div>
-                <div class="view-table">
+        <div class="default-edit">
+            <div class="form-body">
+                <div class="edit-body"></div>
+                <div class="edit-detail"></div>
+            </div>
+            <div class="form-footer">
+                <button type="button" id="ok-btn" class="btn btn-ary expanded-btn">
+                    <i class="icon-ok"></i> OK<small class="muted">&nbsp;[Ctrl+Enter]</small>
+                </button>
+                <button type="button" id="cancel-btn" class="btn expanded-btn">
+                    <i class="icon-remove"></i> Cancel
+                </button>
+            </div>
+        </div>
+ 
+        <div class="default-param">
+            <div class="form-body">
+                <div class="edit-body">
                 </div>
             </div>
-            <div class="modal-footer">
-                <button id="delete-btn" class="btn pull-left" type="button"><i class="icon-trash"></i> Delete<small class="muted">&nbsp;[Ctrl+Del]</small></button>
-                <button id="new-btn" class="btn pull-right" type="button"><i class="icon-plus"></i> New<small class="muted">&nbsp;[Ctrl+Ins]</small></button>
-                <button id="edit-btn" class="btn pull-right" type="button"><i class="icon-edit"></i> Edit</button>
-                <button id="filter-btn" class="btn pull-right" type="button"><i class="icon-filter"></i> Filter</button>
-                <div id="report-btn" class="btn-group dropup pull-right">
-                    <a class="btn dropdown-toggle" data-toggle="dropdown" href="#">
-                        <i class="icon-print"></i> Reports
-                        <span class="caret"></span>
-                    </a>
-                    <ul class="dropdown-menu bottom-up">
-                    </ul>
+            <div class="form-footer">
+                <select id='extension' class="pull-left" style="width: 60px">
+                    <option>pdf</option>
+                    <option>ods</option>
+                    <option>xls</option>
+                    <option>html</option>
+                </select>
+                <button type="button" id="ok-btn" class="btn expanded-btn">
+                    <i class="icon-print"></i> Print
+                </button>
+                <button type="button" id="cancel-btn" class="btn expanded-btn">
+                    <i class="icon-remove"></i> Close
+                </button>
+            </div>
+        </div>
+
+        <div class="default-filter">
+            <div class="form-body">
+                <div class="edit-body">
                 </div>
             </div>
-        </div> 
+            <div class="form-footer">
+                <button type="button" id="ok-btn" class="btn expanded-btn">
+                    <i class="icon-filter"></i> Apply
+                </button>
+                <button type="button" id="cancel-btn" class="btn expanded-btn">
+                    <i class="icon-remove"></i> Close
+                </button>
+            </div>
+        </div>
 
         <div class="topics-view">
             <div class="modal-body">
                 <table class="table-fixed">
                     <tr>
-                        <td id="left-panel" class="td-panel" style="width: 300px; padding-right: 20px">
+                        <td id="left-panel" class="td-panel" style="width: 300px;">
                             <div id="tree-panel" class="side-panel">
                             </div>
                         </td>
                         <td id="right-panel" class="td-panel" style="width: auto">
                             <div id="view-panel">
-                                <div class="view-table">
+                                <div class="topics-table">
                                 </div>
                                     <div class="modal-footer">
                                         <button id="delete-folder-btn" class="btn pull-left" type="button"><i class="icon-trash"></i> Delete folder</button>                                        
                                         <button id="delete-btn" class="btn pull-left" type="button"><i class="icon-trash"></i> Delete<small class="muted">&nbsp;[Ctrl+Del]</small></button>
-                                        <button id="new-btn" class="btn pull-right" type="button"><i class="icon-plus"></i> New<small class="muted">&nbsp;[Ins]</small></button>
-                                        <button id="new-folder-btn" class="btn pull-right" type="button"><i class="icon-plus"></i> New folder<small class="muted">&nbsp;[Ctrl+Ins]</small></button>                                        
-                                        <button id="edit-btn" class="btn pull-right" type="button"><i class="icon-edit"></i> Edit</button>
-                                        <div id="report-btn" class="btn-group dropup pull-right">
-                                            <a class="btn dropdown-toggle" data-toggle="dropdown" href="#">
-                                                <i class="icon-print"></i> Reports
-                                                <span class="caret"></span>
-                                            </a>
-                                            <ul class="dropdown-menu bottom-up">
-                                            </ul>
-                                        </div>
+                                        <button id="new-btn" class="btn" type="button"><i class="icon-plus"></i> New<small class="muted">&nbsp;[Ins]</small></button>
+                                        <button id="new-folder-btn" class="btn" type="button"><i class="icon-plus"></i> New folder<small class="muted">&nbsp;[Ctrl+Ins]</small></button>                                        
+                                        <button id="edit-btn" class="btn" type="button"><i class="icon-edit"></i> Edit</button>
                                     </div>
                             </div>
                         </td>
@@ -128,22 +133,37 @@
             </div>
         </div>
 
-        <div class="doc_editor-view">
+        <div class="topics-edit">
             <div class="modal-body">
                 <div class="view-title"></div>
                 <table class="table-fixed">
                     <tr>
-                        <td id="left-box" class="td-panel" style="width: 186px; padding: 4px">
-                            <div id="editor-btns" style="margin-top: 10px;">
-                                <button id="link-btn" class="btn vert-btn" type="button"><i class="fa fa-link"></i> Doc link<small class="muted">&nbsp;[Alt-D]</small></button>                                                                                                
+                        <td id="left-box" class="td-panel" style="width: 186px">
+                            <div id="editor-btns">
+                                <button id="ext-link-btn" class="btn vert-btn" type="button"><i class="fa fa-link"></i> External link<small class="muted">&nbsp;[Alt-X]</small></button>                                
+                                <button id="link-btn" class="btn vert-btn" type="button"><i class="fa fa-link"></i> Internal link<small class="muted">&nbsp;[Alt-D]</small></button>                                                                                                
                                 <button id="toc-link-btn" class="btn vert-btn" type="button"><i class="fa fa-link"></i> Link to toc<small class="muted">&nbsp;[Alt-T]</small></button>                                                                                                                                
                                 <button id="image-btn" class="btn vert-btn" type="button"><i class="fa fa-picture-o"></i> Image<small class="muted">&nbsp;[Alt-I]</small></button>                                
                                 <button id="figure-btn" class="btn vert-btn" type="button"><i class="fa fa-file-picture-o"></i> Figure<small class="muted">&nbsp;[Alt-G]</small></button>                                                                
                                 <button id="section-btn" class="btn vert-btn" type="button"><i class="fa fa-map-o"></i> Section<small class="muted">&nbsp;[Alt-S]</small></button>                                                                                                                                
-                                <button id="subsection-btn" class="btn vert-btn" type="button"><i class="fa fa-map"></i> Subsection<small class="muted">&nbsp;[Alt-B]</small></button>                                                                                                                                                                
+                                <button id="subsection-btn" class="btn vert-btn" type="button"><i class="fa fa-map"></i> Subsection<small class="muted">&nbsp;[Alt-B]</small></button>
+                                <button id="note-btn" class="btn vert-btn" type="button"><i class="fa fa-exclamation"></i> Note<small class="muted">&nbsp;[Alt-N]</small></button>
+                                <div class="btn-group vert-btn">
+                                    <a class="btn vert-btn dropdown-toggle" style="margin-bottom: 0" data-toggle="dropdown" href="#">
+                                        <i class="fa fa-code"></i> Code block
+                                        <span class="caret"></span>
+                                    </a>
+                                    <ul class="dropdown-menu">
+                                        <li id="py"><a href="#">Python</a></li>
+                                        <li id="js"><a href="#">Javascript</a></li>
+                                        <li id="html"><a href="#">HTML</a></li>
+                                        <li id="console"><a href="#">Console</a></li>                                        
+                                    </ul>
+                                </div>
+                                
                             </div>
                         </td>
-                        <td id="center-box" class="td-panel" style="width: auto">
+                        <td id="center-box" class="td-panel">
                             <div id="editor-box">
                             </div>
                         </td>
@@ -152,75 +172,34 @@
             </div>
             <div class="modal-footer">
                 <span id="error-info" class="code_error pull-left"></span>
-                <button type="button" id="cancel-btn" class="btn pull-right"><i class="icon-remove"></i> Cancel<small class="muted">&nbsp;[Esc]</small></button>
-                <button type="button" id="ok-btn" class="btn pull-right"><i class="icon-ok"></i> OK<small class="muted">&nbsp;[Ctrl+S]</small></button>
-
                 <button type="button" id="rebuild-btn" class="btn pull-left"> Rebuild all</button>                
                 <button type="button" id="preview-btn" class="btn pull-left"><i class="icon-search"></i> Preview<small class="muted">&nbsp;[Alt-P]</small></button>                
                 <button type="button" id="build-info-btn" class="btn pull-left">Build info</button>                                
                 <span id="make_info" class="pull-left"></span>
+
+                <button type="button" id="ok-btn" class="btn"><i class="icon-ok"></i> OK<small class="muted">&nbsp;[Ctrl+S]</small></button>                
+                <button type="button" id="cancel-btn" class="btn"><i class="icon-remove"></i> Cancel/Close</button>
             </div>
         </div>
 
         <div class="parameters-view">
-            <div class="modal-body">
-                <div class="view-table">
-                </div>
+            <div class="form-body">
+                <div class="view-table"></div>
+                <div class="view-detail"></div>
             </div>
-            <div class="modal-footer">
-                <button id="delete-btn" class="btn pull-left" type="button"><i class="icon-trash"></i> Delete<small class="muted">&nbsp;[Ctrl+Del]</small></button>
-                <button id="new-btn" class="btn pull-right" type="button"><i class="icon-plus"></i> New<small class="muted">&nbsp;[Ctrl+Ins]</small></button>
-                <button id="edit-btn" class="btn pull-right" type="button"><i class="icon-edit"></i> Edit</button>
-            </div>
-        </div>
-
-        <div class="journals-edit catalogs-edit">
-            <div class="modal-body">
-                <div class="edit-body">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" id="cancel-btn" class="btn pull-right"><i class="icon-remove"></i> Cancel</button>
-                <button type="button" id="ok-btn" class="btn pull-right"><i class="icon-ok"></i> OK</button>
-            </div>
-        </div>
-
-        <div class="param_dialog-edit">
-            <div class="modal-body">
-                <div class="edit-body">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" id="cancel-btn" class="btn pull-right"><i class="icon-remove"></i> Cancel<small class="muted">&nbsp;[Esc]</small></button>
-                <button type="button" id="ok-btn" class="btn pull-right"><i class="icon-ok"></i> OK<small class="muted">&nbsp;[Enter]</small></button>
-            </div>
-        </div>
-
-        <div class="reports-param">
-            <div class="modal-body">
-                <div class="edit-body">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <select id='extension' class="pull-left" style="width: 60px">
-                    <option>pdf</option>
-                    <option>ods</option>
-                    <option>xls</option>
-                    <option>html</option>
-                </select>
-                <button type="button" id="cancel-btn" class="btn pull-right"><i class="icon-remove"></i> Close</button>
-                <button type="button" id="ok-btn" class="btn pull-right"><i class="icon-print"></i> Print</button>
-            </div>
-        </div>
-
-        <div class="journals-filter">
-            <div class="modal-body">
-                <div class="edit-body">
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" id="cancel-btn" class="btn pull-right"><i class="icon-remove"></i> Close</button>
-                <button type="button" id="ok-btn" class="btn pull-right"><i class="icon-filter"></i> Apply</button>
+            <div class="form-footer">
+                <button id="delete-btn" class="btn expanded-btn pull-left" type="button">
+                    <i class="icon-trash"></i> Delete<small class="muted">&nbsp;[Ctrl+Del]</small>
+                </button>
+                <button id="edit-btn" class="btn expanded-btn" type="button">
+                    <i class="icon-edit"></i> Edit
+                </button>
+                <button id="new-btn" class="btn expanded-btn" type="button">
+                    <i class="icon-plus"></i> New<small class="muted">&nbsp;[Ctrl+Ins]</small>
+                </button>
+                <button id="select-btn" class="btn btn-primary expanded-btn" type="button">
+                    Select<small class="muted">&nbsp;[Dbl click]</small>
+                </button>
             </div>
         </div>
 

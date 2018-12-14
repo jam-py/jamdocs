@@ -63,7 +63,7 @@
                 }
                 else {
                     if (that.options.item_options && that.options.item_options.close_focusout) {
-                        that.options.item.close_form(that.options.form_name);
+                        that.options.item._close_form(that.options.item_options.form_type);
                     }
                 }
             });
@@ -96,7 +96,7 @@
         },
 
         elementIsActive: function (el) {
-            return !(el.disabled || el.hidden || el.readOnly || el.type === 'hidden');
+            return !(el.disabled || el.hidden || el.readOnly || el.type === 'hidden' || el.offsetParent === null);
         },
 
         toggle: function () {
@@ -163,6 +163,9 @@
             }
             else if (this.options.width) {
                 width = this.options.width;
+            }
+            else {
+                width = this.$element.width();
             }
 
             if (width){
@@ -268,7 +271,8 @@
                     var tabs,
                         curIndex;
                     key = e.which;
-                    if (key === 9 || ((e.target.tagName !== 'TABLE') && !$(e.target).hasClass('dbtableinput'))
+                    if (key === 9 ||
+                        ((e.target.tagName !== 'TABLE') && !$(e.target).hasClass('dbtableinput') && (e.target.tagName !== 'TEXTAREA'))
                         && (key === 38 || key === 40)){
                         if (e.target === that.$element.get(0)) {
                             tabs = that.tabList();

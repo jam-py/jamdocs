@@ -2,26 +2,27 @@ JamDocs is an interface for the python documentation generator
 Sphinx, created by Georg Brandl and licensed under the BSD license.
 It is powered by Jam.py framework.
 
-To use it:
-1. Download the archive.
+Requirements
 
-2. Create a new directory and unpack the archive there.
+One of the following Python version must be installed: 3.5, 3.6, 3.7.
+Sphinx python library must be installed.
 
-3. Go into the directory and run the following command from command line:
-    ./server.py
-You can specify a port as parameter. For example
-    ./server.py 8081
-for port 8081
+Main features
 
-4. In a browser input into the addres bar
-    127.0.0.1:8080
-If you specified another port, replace 8080 with the port.
+Very simple, in a couple of clicks, adding internal links to other documentation files, inserting images and figures
+Easy creation of external links
+Ability to work with multiple files in adjacent tabs
+Preview changes on the page of the browser with one click.
+Simple addition and removal of files and folders of documentation.
+Automatic synchronization of the application with changes to the files in the documentation directory.
 
-5. In the dialog that will appear input name of the Sphinx project. For
-example:
-    Django docs
-and a path to conf.py of the project:
-    /home/user/django/docs/conf.py
-click OK to save data and dbl click the project to select it.
+Getting started
 
-Thanks for checking it out.
+Download the archive
+Create a new directory and unpack the archive there
+Go into the directory and run the server.py script. You can specify a port as parameter
+In the browser, type 127.0.0.1:8080 in the address bar. If you specified another port, replace 8080 with the port.
+In the dialog that will appear input name of the Sphinx project and a path to conf.py of the project. Click OK button to save data and double-click the project to select it.
+
+Author
+Andrew Yushev

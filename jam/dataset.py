@@ -1,16 +1,17 @@
-# -*- coding: utf-8 -*-
-
 import datetime
 import traceback
-import common
 
-FIELD_DEF = FIELD_ID, FIELD_NAME, NAME, FIELD_DATA_TYPE, REQUIRED, LOOKUP_ITEM, MASTER_FIELD, LOOKUP_FIELD, \
-    FIELD_VISIBLE, FIELD_VIEW_INDEX, FIELD_EDIT_VISIBLE, FIELD_EDIT_INDEX, FIELD_READ_ONLY, FIELD_EXPAND, FIELD_WORD_WRAP, \
-    FIELD_SIZE, FIELD_DEFAULT_VALUE, FIELD_DEFAULT, FIELD_CALCULATED, FIELD_EDITABLE, FIELD_ALIGNMENT, FIELD_LOOKUP_VALUES, \
-    FIELD_ENABLE_TYPEAHEAD, FIELD_HELP, FIELD_PLACEHOLDER = range(25)
+import jam.common as common
+from werkzeug._compat import iteritems, iterkeys, text_type, string_types, to_unicode
 
-FILTER_DEF = FILTER_OBJ_NAME, FILTER_NAME, FILTER_FIELD_NAME, FILTER_TYPE, FILTER_DATA_TYPE, FILTER_VISIBLE, \
-    FILTER_HELP, FILTER_PLACEHOLDER = range(8)
+FIELD_DEF = FIELD_ID, FIELD_NAME, NAME, FIELD_DATA_TYPE, REQUIRED, LOOKUP_ITEM, MASTER_FIELD, LOOKUP_FIELD, LOOKUP_FIELD1, \
+    LOOKUP_FIELD2, FIELD_VISIBLE, FIELD_VIEW_INDEX, FIELD_EDIT_VISIBLE, FIELD_EDIT_INDEX, FIELD_READ_ONLY, FIELD_EXPAND, \
+    FIELD_WORD_WRAP, FIELD_SIZE, FIELD_DEFAULT_VALUE, FIELD_DEFAULT, FIELD_CALCULATED, FIELD_EDITABLE, FIELD_ALIGNMENT, \
+    FIELD_LOOKUP_VALUES, FIELD_MULTI_SELECT, FIELD_MULTI_SELECT_ALL, FIELD_ENABLE_TYPEAHEAD, FIELD_HELP, FIELD_PLACEHOLDER, \
+    FIELD_MASK, FIELD_IMAGE, FIELD_FILE, DB_FIELD_NAME = range(33)
+
+FILTER_DEF = FILTER_OBJ_NAME, FILTER_NAME, FILTER_FIELD_NAME, FILTER_TYPE, FILTER_MULTI_SELECT, FILTER_DATA_TYPE, \
+    FILTER_VISIBLE, FILTER_HELP, FILTER_PLACEHOLDER, FILTER_ID = range(10)
 
 class DatasetException(Exception):
     pass
@@ -28,6 +29,13 @@ class DBField(object):
         self.lookup_item = field_def[LOOKUP_ITEM]
         self.master_field = field_def[MASTER_FIELD]
         self.lookup_field = field_def[LOOKUP_FIELD]
+        self.lookup_db_field = None
+        self.lookup_item1 = None
+        self.lookup_field1 = field_def[LOOKUP_FIELD1]
+        self.lookup_db_field1 = None
+        self.lookup_item2 = None
+        self.lookup_field2 = field_def[LOOKUP_FIELD2]
+        self.lookup_db_field2 = None
         self.read_only = field_def[FIELD_READ_ONLY]
         self.view_visible = field_def[FIELD_VISIBLE]
         self.view_index = field_def[FIELD_VIEW_INDEX]
@@ -42,16 +50,30 @@ class DBField(object):
         self.editable = field_def[FIELD_EDITABLE]
         self.alignment = field_def[FIELD_ALIGNMENT]
         self.lookup_values = field_def[FIELD_LOOKUP_VALUES]
+        self.multi_select = field_def[FIELD_MULTI_SELECT]
+        self.multi_select_all = field_def[FIELD_MULTI_SELECT_ALL]
+        self.enable_typeahead = field_def[FIELD_ENABLE_TYPEAHEAD]
+        self.field_help = field_def[FIELD_HELP]
+        self.field_placeholder = field_def[FIELD_PLACEHOLDER]
+        self.field_mask = field_def[FIELD_MASK]
+        self.field_image = field_def[FIELD_IMAGE]
+        self.db_field_name = field_def[DB_FIELD_NAME]
         self.field_type = common.FIELD_TYPE_NAMES[self.data_type]
         self.filter = None
         self.on_field_get_text_called = None
+
+    def __setattr__(self, name, value):
+        if name != 'owner' and self.owner and self.owner.task_locked():
+            raise Exception(self.owner.task.language('server_tree_immutable') + \
+                ' Item: "%s", Field: "%s", Attribute: "%s"' % (self.owner.item_name, self.field_name, name))
+        super(DBField, self).__setattr__(name, value)
 
     def get_row(self):
         if self.owner._dataset:
             return self.owner._dataset[self.owner.rec_no]
         else:
-            print traceback.format_exc()
-            raise Exception, u'An attempt to get a field value in the empty dataset - item: %s, field: %s ' % (self.owner.item_name, self.field_name)
+            traceback.print_exc()
+            raise Exception(self.owner.task.language('value_in_empty_dataset') % self.owner.item_name)
 
     def get_data(self):
         row = self.get_row()
@@ -62,6 +84,8 @@ class DBField(object):
         row = self.get_row()
         if row and (self.bind_index >= 0):
             row[self.bind_index] = value
+
+    data = property (get_data)
 
     def get_lookup_data(self):
         if self.lookup_index:
@@ -94,24 +118,27 @@ class DBField(object):
                 elif self.data_type == common.DATETIME:
                     result = self.datetime_to_str(result)
                 elif self.data_type == common.TEXT:
-                    result = unicode(result)
+                    result = text_type(result)
                 elif self.data_type == common.BOOLEAN:
                     if self.value:
                         if self.owner:
-                            result = self.owner.task.lang['yes']
+                            result = self.owner.task.language('yes')
                         else:
-                            result = u'True'
+                            result = 'True'
                     else:
                         if self.owner:
-                            result = self.owner.task.lang['no']
+                            result = self.owner.task.language('no')
                         else:
-                            result = u'False'
+                            result = 'False'
+                elif self.data_type == common.KEYS:
+                    if len(result):
+                        result = self.owner.task.language('items_selected') % len(result)
                 else:
                     result = str(result)
             else:
                 result = ''
-        except Exception, e:
-            print traceback.format_exc()
+        except Exception as e:
+            traceback.print_exc()
             self.do_on_error(self.type_error() % (''), e)
         return result
 
@@ -119,7 +146,7 @@ class DBField(object):
         if value != self.text:
             try:
                 if self.data_type == common.TEXT:
-                    self.set_value(unicode(value))
+                    self.set_value(text_type(value))
                 elif self.data_type == common.INTEGER:
                     self.set_value(int(value))
                 if self.data_type == common.FLOAT:
@@ -132,19 +159,21 @@ class DBField(object):
                     self.set_value(common.str_to_datetime(value))
                 elif self.data_type == common.BOOLEAN:
                     if self.owner:
-                        if len(value) and value.upper().split() == self.owner.task.lang['yes'].upper().split():
+                        if len(value) and value.upper().split() == self.owner.task.language('yes').upper().split():
                             self.set_value(True)
                         else:
                             self.set_value(False)
                     else:
-                        if len(value) and value[0] in [u'T', u't']:
+                        if len(value) and value[0] in ['T', 't']:
                             self.set_value(True)
                         else:
                             self.set_value(False)
+                elif self.data_type == common.KEYS:
+                    pass
                 else:
                     self.set_value(value)
-            except Exception, e:
-                print traceback.format_exc()
+            except Exception as e:
+                traceback.print_exc()
                 self.do_on_error(self.type_error() % (value), e)
 
     text = property (get_text, set_text)
@@ -164,19 +193,30 @@ class DBField(object):
         except:
             return self.convert_date_time(value).date()
 
+    def convert_keys(self, value):
+        result = []
+        if self.get_lookup_data():
+            return self.get_lookup_data()
+        elif value:
+            if self.get_lookup_data_type() == common.TEXT:
+                result = value.split(';')
+            else:
+                result = [int(val) for val in value.split(';')]
+        self.set_lookup_data(result)
+        return result
 
     def get_raw_value(self):
         try:
             value = self.get_data()
             if self.data_type == common.DATE:
-                if type(value) in [str, unicode]:
+                if type(value) in string_types:
                     value = self.convert_date(value)
             elif self.data_type == common.DATETIME:
-                if type(value) in [str, unicode]:
+                if type(value) in string_types:
                     value = self.convert_date_time(value)
             return value
-        except Exception, e:
-            print traceback.format_exc()
+        except Exception as e:
+            traceback.print_exc()
             self.do_on_error(self.type_error() % (''), e)
 
     raw_value = property (get_raw_value)
@@ -192,18 +232,24 @@ class DBField(object):
                         value = False
                     elif self.data_type == common.TEXT:
                         value = ''
+                    elif self.data_type == common.KEYS:
+                        value = [];
             else:
-                if self.data_type in (common.TEXT, ):
-                    if not isinstance(value, unicode):
-                        value = value.decode('utf-8')
+                if self.data_type == common.TEXT:
+                    if not isinstance(value, text_type):
+                        value = to_unicode(value, 'utf-8')
+                if self.data_type in (common.FLOAT, common.CURRENCY):
+                    value = float(value)
                 elif self.data_type == common.BOOLEAN:
                     if value:
                         value = True
                     else:
                         value = False
+                elif self.data_type == common.KEYS:
+                    value = self.convert_keys(value)
             return value
-        except Exception, e:
-            print traceback.format_exc()
+        except Exception as e:
+            traceback.print_exc()
             self.do_on_error(self.type_error() % (''), e)
 
     def _change_lookup_field(self, lookup_value=None):
@@ -222,31 +268,23 @@ class DBField(object):
     def _do_before_changed(self):
         if self.owner:
             if not self.owner.item_state in (common.STATE_INSERT, common.STATE_EDIT):
-                raise DatasetException, u'%s is not in edit or insert mode' % self.owner.item_name
+                raise DatasetException(self.owner.task.language('not_edit_insert_state') % self.owner.item_name)
             if self.owner.on_before_field_changed:
                 self.owner.on_before_field_changed(self)
 
     def _check_system_field_value(self, value):
         if self.field_kind == common.ITEM_FIELD:
             if self.field_name == self.owner._primary_key and self.value and self.value != value:
-                raise DatasetException, u'%s: сhanging of the primary field is forbidden' % self.owner.item_name
+                raise DatasetException(self.owner.task.language('no_primary_field_changing') % self.owner.item_name)
             if self.field_name == self.owner._deleted_flag and self.value != value:
-                raise DatasetException, u'%s, field - %s: сhanging of the deleted flag field is forbidden' % (self.owner.item_name, self.field_name)
-
-    def _is_filter_value(self, value):
-        if self.field_kind == common.FILTER_FIELD:
-            if self.filter.filter_type in (common.FILTER_IN, common.FILTER_NOT_IN):
-                if not type(value) in [list, tuple]:
-                    error = u'Filter "%s" value must be an array' % self.filter.filter_name
-                    self.do_on_error(error);
-                return True
+                raise DatasetException(self.owner.task.language('no_deleted_field_changing') % self.owner.item_name)
 
     def set_value(self, value, lookup_value=None, lookup_item=None):
         self._check_system_field_value(value)
         self.new_value = None
         if not value is None:
             self.new_value = value
-            if not self._is_filter_value(value):
+            if not self.multi_select:
                 if self.data_type == common.BOOLEAN:
                     if bool(value):
                         self.new_value = 1
@@ -256,12 +294,15 @@ class DBField(object):
                     self.new_value = float(value)
                 elif self.data_type == common.INTEGER:
                     self.new_value = int(value)
+                elif self.data_type == common.KEYS:
+                    self.new_value = ';'.join([str(v) for v in value])
+                    lookup_value = value
         if self.raw_value != self.new_value:
             self._do_before_changed()
             try:
                 self.set_data(self.new_value)
-            except Exception, e:
-                print traceback.format_exc()
+            except Exception as e:
+                traceback.print_exc()
                 self.do_on_error(self.type_error() % (value), e)
             finally:
                 self.new_value = None
@@ -280,17 +321,31 @@ class DBField(object):
         if self.lookup_item:
             return self.lookup_item._field_by_name(self.lookup_field).data_type;
 
+    def _get_value_in_list(self, value=None):
+        result = '';
+        if value is None:
+            value = self.value
+        for val, str_val in self.lookup_values:
+            if val == value:
+                result = str_val
+        return result
+
     def get_lookup_value(self):
         value = None
-        if self.lookup_item:
+        if self.lookup_values and self.value:
+            try:
+                value = self._get_value_in_list()
+            except:
+                pass
+        elif self.lookup_item:
             if self.value:
                 value = self.get_lookup_data()
                 data_type = self.get_lookup_data_type()
                 if data_type == common.DATE:
-                    if isinstance(value, unicode):
+                    if isinstance(value, text_type):
                         value = self.convert_date(value)
                 elif data_type == common.DATETIME:
-                    if isinstance(value, unicode):
+                    if isinstance(value, text_type):
                         value = self.convert_date_time(value)
                 elif self.data_type == common.BOOLEAN:
                     value = bool(value)
@@ -305,7 +360,9 @@ class DBField(object):
     def get_lookup_text(self):
         result = ''
         try:
-            if self.lookup_item:
+            if self.lookup_values and self.value:
+                result = self.get_lookup_value()
+            elif self.lookup_item:
                 if self.value:
                     result = self.get_lookup_value()
                 if result is None:
@@ -321,32 +378,21 @@ class DBField(object):
                             result = self.float_to_str(result)
                         elif data_type == common.CURRENCY:
                             result = self.cur_to_str(result)
-            result = unicode(result)
-        except Exception, e:
-            print traceback.format_exc()
+            result = text_type(result)
+        except Exception as e:
+            traceback.print_exc()
         return result
 
     lookup_text = property (get_lookup_text)
 
     def get_display_text(self):
-
-        def get_value_in_list():
-            result = '';
-            for val, str_val in self.lookup_values:
-                if val == self.value:
-                    result = str_val
-            return result
-
         result = ''
         if self.filter and self.filter.filter_type == common.FILTER_IN and self.filter.field.lookup_item and self.filter.value:
-            result = self.filter.owner.task.lang['items_selected'] % len(self.filter.value)
+            result = self.filter.owner.task.language('items_selected') % len(self.filter.value)
         elif self.lookup_item:
             result = self.lookup_text
-        elif self.lookup_values and self.value:
-            try:
-                result = get_value_in_list()
-            except:
-                pass
+        elif self.lookup_values:
+            result = self.lookup_text
         else:
             if self.data_type == common.CURRENCY:
                 if not self.raw_value is None:
@@ -367,13 +413,36 @@ class DBField(object):
 
     display_text = property(get_display_text)
 
+    def assign_default_value(self):
+        if self.default_value:
+            try:
+                if self.data_type == common.INTEGER:
+                    self.value = int(self.default_value)
+                elif self.data_type in [common.FLOAT, common.CURRENCY]:
+                    self.value = float(self.default_value)
+                elif self.data_type == common.DATE:
+                    if self.default_value == 'current date':
+                        self.value = datetime.date.today()
+                elif self.data_type == common.DATETIME:
+                    if self.default_value == 'current datetime':
+                        self.value = datetime.datetime.now()
+                elif self.data_type == common.BOOLEAN:
+                    if self.default_value == 'true':
+                        self.value = True
+                    elif self.default_value == 'false':
+                        self.value = False
+                elif self.data_type in [common.TEXT, common.LONGTEXT]:
+                    self.value = self.default_value
+            except Exception as e:
+                print(e)
+
     def _set_read_only(self, value):
         self._read_only = value
         self.update_controls()
 
     def _get_read_only(self):
         result = self._read_only
-        if self.owner and self.owner.parent_read_only and self.owner.read_only:
+        if self.owner and self.owner.owner_read_only and self.owner.read_only:
             result = self.owner.read_only
         return result
 
@@ -418,8 +487,7 @@ class DBField(object):
         self.get_value()
         if (self.data_type == common.TEXT) and (self.field_size != 0) and \
             (len(self.text) > self.field_size):
-            print self.text, len(self.text), type(self.text)
-            self.do_on_error(self.owner.task.lang['invalid_length'] % self.field_size)
+            self.do_on_error(self.owner.task.language('invalid_length') % self.field_size)
         return True
 
     def check_reqired(self):
@@ -428,7 +496,7 @@ class DBField(object):
         elif self.get_raw_value() != None:
             return True
         else:
-            self.do_on_error(self.owner.task.lang['value_required'])
+            self.do_on_error(self.owner.task.language('value_required'))
 
     def check_valid(self):
         if self.check_reqired():
@@ -456,23 +524,23 @@ class DBField(object):
             mess = str(err)
         if mess:
             if self.owner:
-                print u'%s %s - %s: %s' % (self.owner.item_name,
-                    self.owner.task.lang['error'].lower(), self.field_name, mess)
+                print('%s %s - %s: %s' % (self.owner.item_name,
+                    self.owner.task.language('error').lower(), self.field_name, mess))
         raise TypeError(mess)
 
     def type_error(self):
         if self.data_type == common.INTEGER:
-            return self.owner.task.lang['invalid_int']
+            return self.owner.task.language('invalid_int')
         elif self.data_type == common.FLOAT:
-            return self.owner.task.lang['invalid_float']
+            return self.owner.task.language('invalid_float')
         elif self.data_type == common.CURRENCY:
-            return self.owner.task.lang['invalid_cur']
+            return self.owner.task.language('invalid_cur')
         elif (self.data_type == common.DATE) or (self.data_type == common.DATE):
-            return self.owner.task.lang['invalid_date']
+            return self.owner.task.language('invalid_date')
         elif self.data_type == common.BOOLEAN:
-            return self.owner.task.lang['invalid_bool']
+            return self.owner.task.language('invalid_bool')
         else:
-            return self.owner.task.lang['invalid_value']
+            return self.owner.task.language('invalid_value')
 
     def system_field(self):
         if self.field_name and self.field_name in (self.owner._primary_key,  \
@@ -546,6 +614,7 @@ class DBFilter(object):
         self.field_name = filter_def[FILTER_FIELD_NAME]
         self.filter_type = filter_def[FILTER_TYPE]
         self.data_type = filter_def[FILTER_DATA_TYPE]
+        self.multi_select_all = filter_def[FILTER_MULTI_SELECT]
         self.visible = filter_def[FILTER_VISIBLE]
         self.filter_help = filter_def[FILTER_HELP]
         if type(self.field_name) == int:
@@ -554,19 +623,28 @@ class DBFilter(object):
         if self.field_name:
             self.field = FilterField(self, field, self.owner)
             setattr(self, self.field_name, self.field)
+            if self.filter_type in (common.FILTER_IN, common.FILTER_NOT_IN):
+                self.field.multi_select = True;
             if self.filter_type == common.FILTER_RANGE:
                 self.field1 = FilterField(self, field, self.owner)
 
+    def __setattr__(self, name, value):
+        if name != 'owner' and self.owner and self.owner.task_locked():
+            raise Exception(self.owner.task.language('server_tree_immutable') + \
+                ' Item: "%s", Filter: "%s", attribute: "%s"' % (self.owner.item_name, self.filter_name, name))
+        super(DBFilter, self).__setattr__(name, value)
+
     def set_value(self, value):
-        if self.filter_type == common.FILTER_RANGE:
-            if value is None:
-                self.field.value = None;
-                self.field1.value = None;
+        if not isinstance(value, FilterField):
+            if self.filter_type == common.FILTER_RANGE:
+                if value is None:
+                    self.field.value = None;
+                    self.field1.value = None;
+                else:
+                    self.field.value = value[0];
+                    self.field1.value = value[1];
             else:
-                self.field.value = value[0];
-                self.field1.value = value[1];
-        else:
-            self.field.value = value
+                self.field.value = value
 
     def get_value(self):
         return self.field.raw_value
@@ -654,7 +732,7 @@ class ChangeLog(object):
         modified = False
         old_rec = record_log['old_record']
         cur_rec = record_log['record']
-        for i in xrange(self.item._record_lookup_index):
+        for i in range(self.item._record_lookup_index):
             if old_rec[i] != cur_rec[i]:
                 modified = True
                 break
@@ -693,7 +771,7 @@ class ChangeLog(object):
                 else:
                     self.item.record_status = common.RECORD_DELETED
             else:
-                raise Exception, u'%s: change log invalid records state' % self.item.item_name
+                raise Exception('Item %s: change log invalid records state' % self.item.item_name)
             if self.item.master:
                 if self.item.master.record_status == common.RECORD_UNCHANGED:
                     self.item.master.record_status = common.RECORD_DETAILS_MODIFIED
@@ -703,14 +781,14 @@ class ChangeLog(object):
         result['fields'] = self.fields
         result['expanded'] = False
         result['data'] = data
-        for key, record_log in self.logs.iteritems():
+        for key, record_log in iteritems(self.logs):
             record = record_log['record']
             info = self.item.get_rec_info(record=record)
             if info[common.REC_STATUS] != common.RECORD_UNCHANGED:
                 old_record = record_log['old_record']
                 new_record = self.copy_record(record_log['record'], expanded=False)
                 new_details = {}
-                for detail_id, detail in record_log['details'].iteritems():
+                for detail_id, detail in iteritems(record_log['details']):
                     new_detail = {}
                     detail_item = self.item.item_by_ID(int(detail_id))
                     detail_item.change_log.logs = detail['logs']
@@ -732,7 +810,7 @@ class ChangeLog(object):
         self.expanded = changes['expanded']
         data = changes['data']
         self._change_id = 0
-        for key, record_log in data.iteritems():
+        for key, record_log in iteritems(data):
             if self._change_id < int(key):
                 self._change_id = int(key)
             record = record_log['record']
@@ -744,7 +822,7 @@ class ChangeLog(object):
                 'record': record,
                 'details': details
             }
-            for detail_id, detail in record_log['details'].iteritems():
+            for detail_id, detail in iteritems(record_log['details']):
                 detail_item = self.item.item_by_ID(int(detail_id))
                 detail_item.change_log.set_changes(detail)
                 details[detail_id] = {
@@ -776,7 +854,7 @@ class ChangeLog(object):
                 fields = detail['fields']
                 expanded = detail['expanded']
                 records = self.copy_records(cur_records)
-                for key, record_log in cur_logs.iteritems():
+                for key, record_log in iteritems(cur_logs):
                     cur_record = record_log['record']
                     record = detail_item.change_log.copy_record(cur_record)
                     index = None
@@ -880,7 +958,7 @@ class ChangeLog(object):
                         if item_detail:
                             detail_item.change_log.logs = item_detail['logs']
                             detail_item.change_log.update(detail, rec_id)
-                    if rec_id:
+                    if rec_id and self.item._primary_key:
                         if not record[self.item._primary_key_field.bind_index]:
                             record[self.item._primary_key_field.bind_index] = rec_id
                     if master_rec_id:
@@ -909,6 +987,10 @@ class AbstractDataSet(object):
         self._deleted_flag = None
         self._master_id = None
         self._master_rec_id = None
+        self._primary_key_db_field_name = None
+        self._deleted_flag_db_field_name = None
+        self._master_id_db_field_name = None
+        self._master_rec_id_db_field_name = None
         self._eof = False
         self._bof = False
         self._cur_row = None
@@ -929,12 +1011,12 @@ class AbstractDataSet(object):
         self._filtered = False
         self.expanded = True
         self._open_params = {}
-        self.post_local = False
         self._disabled_count = 0
-        self.open_params = {}
         self._is_delta = False
-        self.keep_history = False
-        self.parent_read_only = True
+        self._keep_history = False
+        self.lock_on_edit = False
+        self.select_all = False
+        self.owner_read_only = True
         self.on_before_append = None
         self.on_after_append = None
         self.on_before_edit = None
@@ -969,9 +1051,11 @@ class AbstractDataSet(object):
         return self
 
     def add_field_def(self, field_ID, field_name, field_caption, data_type, required, lookup_item, lookup_field,
-            view_visible, view_index, edit_visible, edit_index, read_only, expand, word_wrap,
-            field_size, default_value, is_default, calculated, editable, master_field, alignment,
-            lookup_values, enable_typeahead, field_help, field_placeholder):
+            lookup_field1, lookup_field2, view_visible, view_index, edit_visible, edit_index, read_only, expand,
+            word_wrap, field_size, default_value, is_default, calculated, editable, master_field, alignment,
+            lookup_values, enable_typeahead, field_help, field_placeholder, field_mask,
+            image_edit_width, image_edit_height, image_view_width, image_view_height, image_placeholder, image_camera,
+            file_download_btn, file_open_btn, file_accept, db_field_name):
         field_def = [None for i in range(len(FIELD_DEF))]
         field_def[FIELD_ID] = field_ID
         field_def[FIELD_NAME] = field_name
@@ -981,6 +1065,8 @@ class AbstractDataSet(object):
         field_def[LOOKUP_ITEM] = lookup_item
         field_def[MASTER_FIELD] = master_field
         field_def[LOOKUP_FIELD] = lookup_field
+        field_def[LOOKUP_FIELD1] = lookup_field1
+        field_def[LOOKUP_FIELD2] = lookup_field2
         field_def[FIELD_READ_ONLY] = read_only
         field_def[FIELD_VISIBLE] = view_visible
         field_def[FIELD_VIEW_INDEX] = view_index
@@ -998,20 +1084,30 @@ class AbstractDataSet(object):
         field_def[FIELD_ENABLE_TYPEAHEAD] = enable_typeahead
         field_def[FIELD_HELP] = field_help
         field_def[FIELD_PLACEHOLDER] = field_placeholder
+        field_def[FIELD_MASK] = field_mask
+        if data_type == common.IMAGE:
+            field_def[FIELD_IMAGE] = {'edit_width': image_edit_width, 'edit_height': image_edit_height,
+                'view_width': image_view_width, 'view_height': image_view_height, 'placeholder': image_placeholder,
+                'camera': image_camera}
+        if data_type == common.FILE:
+            field_def[FIELD_FILE] = {'download_btn': file_download_btn, 'open_btn': file_open_btn, 'accept': file_accept}
+        field_def[DB_FIELD_NAME] = db_field_name
         self.field_defs.append(field_def)
         return field_def
 
-    def add_filter_def(self, filter_name, filter_caption, field_name, filter_type, \
-        data_type, visible, filter_help, filter_placeholder):
+    def add_filter_def(self, filter_name, filter_caption, field_name, filter_type,
+            multi_select_all, data_type, visible, filter_help, filter_placeholder, filter_ID):
         filter_def = [None for i in range(len(FILTER_DEF))]
         filter_def[FILTER_OBJ_NAME] = filter_name
         filter_def[FILTER_NAME] = filter_caption
         filter_def[FILTER_FIELD_NAME] = field_name
         filter_def[FILTER_TYPE] = filter_type
+        filter_def[FILTER_MULTI_SELECT] = multi_select_all
         filter_def[FILTER_DATA_TYPE] = data_type
         filter_def[FILTER_VISIBLE] = visible
         filter_def[FILTER_HELP] = filter_help
         filter_def[FILTER_PLACEHOLDER] = filter_placeholder
+        filter_def[FILTER_ID] = filter_ID
         self.filter_defs.append(filter_def)
         return filter_def
 
@@ -1027,14 +1123,23 @@ class AbstractDataSet(object):
 
     dataset = property (get_dataset, set_dataset)
 
+    def get_keep_history(self):
+        if self.master:
+            return self.prototype._keep_history
+        else:
+            return self._keep_history
+
+    keep_history = property (get_keep_history)
+
     def _copy(self, filters=True, details=True, handlers=True):
-        result = self.__class__(self.owner, self.item_name, self.item_caption, self.visible)
+        result = self.__class__(self.task, None, self.item_name, self.item_caption, self.visible)
         result.ID = self.ID
         result.item_name = self.item_name
         result.expanded = self.expanded
         result.field_defs = self.field_defs
         result.filter_defs = self.filter_defs
-        result.keep_history = self.keep_history
+        result._keep_history = self._keep_history
+        result.select_all = self.select_all
 
         for field_def in result.field_defs:
             field = DBField(result, field_def)
@@ -1053,7 +1158,7 @@ class AbstractDataSet(object):
         return result
 
     def clone(self, keep_filtered=True):
-        result = self.__class__(self.owner, self.item_name, self.item_caption, self.visible)
+        result = self.__class__(self.task, None, self.item_name, self.item_caption, self.visible)
         result.ID = self.ID
         result.item_name = self.item_name
         result.field_defs = self.field_defs
@@ -1084,14 +1189,31 @@ class AbstractDataSet(object):
         return result
 
     def prepare_fields(self):
-
         for field in self._fields:
             if field.lookup_item and type(field.lookup_item) == int:
                 field.lookup_item = self.task.item_by_ID(field.lookup_item)
             if field.master_field and type(field.master_field) == int:
                 field.master_field = self._field_by_ID(field.master_field)
             if field.lookup_field and type(field.lookup_field) == int:
-                field.lookup_field = field.lookup_item._field_by_ID(field.lookup_field).field_name
+                lookup_field = field.lookup_item._field_by_ID(field.lookup_field)
+                field.lookup_field = lookup_field.field_name
+                field.lookup_db_field = lookup_field.db_field_name
+                if lookup_field.lookup_item and field.lookup_field1:
+                    field.lookup_item1 = lookup_field.lookup_item
+                    if type(field.lookup_item1) == int:
+                        field.lookup_item1 = self.task.item_by_ID(field.lookup_item1)
+                    if type(field.lookup_field1) == int:
+                        lookup_field1 = field.lookup_item1._field_by_ID(field.lookup_field1)
+                        field.lookup_field1 = lookup_field1.field_name
+                        field.lookup_db_field1 = lookup_field1.db_field_name
+                    if lookup_field1.lookup_item and field.lookup_field2:
+                        field.lookup_item2 = lookup_field1.lookup_item
+                        if type(field.lookup_item2) == int:
+                            field.lookup_item2 = self.task.item_by_ID(field.lookup_item2)
+                        if type(field.lookup_field2) == int:
+                            lookup_field2 = field.lookup_item2._field_by_ID(field.lookup_field2)
+                            field.lookup_field2 = lookup_field2.field_name
+                            field.lookup_db_field2 = lookup_field2.db_field_name
             if field.lookup_values and type(field.lookup_values) == int:
                 try:
                     field.lookup_values = self.task.lookup_lists[field.lookup_values]
@@ -1107,6 +1229,7 @@ class AbstractDataSet(object):
                 field = self.field_by_ID(sys_field)
                 if field:
                     setattr(self, sys_field_name, field.field_name)
+                    setattr(self, '%s_%s' % (sys_field_name, 'db_field_name'), field.db_field_name)
 
     def prepare_filters(self):
         for fltr in self.filters:
@@ -1287,10 +1410,16 @@ class AbstractDataSet(object):
             self.rec_no -= 1
 
     def eof(self):
-        return self._eof
+        if self.active:
+            return self._eof
+        else:
+            return True
 
     def bof(self):
-        return self._bof
+        if self.active:
+            return self._bof
+        else:
+            return True
 
     def valid_record(self):
         if self.on_filter_record and self.filtered:
@@ -1430,7 +1559,7 @@ class AbstractDataSet(object):
 
     def get_where_list(self, field_dict):
         result = []
-        for field_arg in field_dict.keys():
+        for field_arg in iterkeys(field_dict):
             field_name = field_arg
             pos = field_name.find('__')
             if pos > -1:
@@ -1451,11 +1580,24 @@ class AbstractDataSet(object):
                 result.append([field_name, filter_type, value])
         return result
 
-    def set_fields(self, *fields):
-        self._select_field_list = [field for field in fields];
+    def set_fields(self, lst=None, *fields):
+        field_list = []
+        if lst:
+            if type(lst) in (list, tuple):
+                field_list = list(lst)
+            else:
+                field_list.append(lst)
+        field_list = field_list + list(fields)
+        self._select_field_list = field_list
 
-    def set_where(self, **fields):
-        self._where_list = self.get_where_list(fields)
+    def set_where(self, dic=None, **fields):
+        field_dict = {}
+        if dic:
+            field_dict = dic
+        if fields:
+            for key, value in iteritems(fields):
+                field_dict[key] = value
+        self._where_list = self.get_where_list(field_dict)
 
     def get_order_by_list(self, field_list):
         result = []
@@ -1468,12 +1610,19 @@ class AbstractDataSet(object):
             try:
                 fld = self._field_by_name(field_name)
             except:
-                raise RuntimeError('%s: change_order method arument error - %s' % (self.item_name, field))
-            result.append([fld.ID, desc])
+                raise RuntimeError('%s: order_by param error - %s' % (self.item_name, field))
+            result.append([fld.field_name, desc])
         return result
 
-    def set_order_by(self, *fields):
-        self._order_by_list = self.get_order_by_list(fields)
+    def set_order_by(self, lst=None, *fields):
+        field_list = []
+        if lst:
+            if type(lst) in (list, tuple):
+                field_list = list(lst)
+            else:
+                field_list.append(lst)
+        field_list = field_list + list(fields)
+        self._order_by_list = self.get_order_by_list(field_list)
 
     def _update_fields(self, fields):
 
@@ -1487,7 +1636,7 @@ class AbstractDataSet(object):
                 if field:
                     self.fields.append(field)
                 else:
-                    raise Exception, '%s - _do_before_open method error: there is no field with field_name: %s' % (self.item_name, field_name)
+                    raise Exception('%s - _do_before_open method error: there is no field with field_name: %s' % (self.item_name, field_name))
         else:
             self.fields = list(self._fields)
         for field in self.fields:
@@ -1524,7 +1673,7 @@ class AbstractDataSet(object):
                 params['__limit'] = limit
                 if offset:
                     params['__offset'] = offset
-            if where:
+            if not where is None:
                 filters = self.get_where_list(where)
             elif self._where_list:
                 filters = list(self._where_list)
@@ -1537,12 +1686,16 @@ class AbstractDataSet(object):
                 field_name, text = params['__search']
                 filters.append([field_name, common.FILTER_CONTAINS_ALL, text])
             params['__filters'] = filters
-            if order_by:
+            if not order_by is None:
                 params['__order'] = self.get_order_by_list(order_by)
             elif self._order_by_list:
                 params['__order'] = list(self._order_by_list)
-            elif self._order_by:
-                params['__order'] = self._order_by
+            #~ elif self._order_by:
+                #~ params['__order'] = self._order_by
+                #~ for param in self._order_by:
+                    #~ if not self.field_by_ID(param[0]):
+                        #~ params['__order'] = [];
+                        #~ break
             if funcs:
                 params['__funcs'] = funcs
             if group_by:
@@ -1606,27 +1759,22 @@ class AbstractDataSet(object):
 
     def _do_after_append(self):
         for field in self.fields:
-            if field.default_value:
-                try:
-                    field.text = field.default_value
-                except:
-                    pass
+            field.assign_default_value()
         self._modified = False
         if self.on_after_append:
             self.on_after_append(self)
 
     def append(self):
         if not self.active:
-            raise DatasetException(u"Can't insert record in %s: %s is not active" % (self.item_name, self.item_name))
+            raise DatasetException(self.task.language('append_not_active') % self.item_name)
         if self.item_state != common.STATE_BROWSE:
-            raise DatasetException(u"Can't insert record in %s: %s is not in browse state" % (self.item_name, self.item_name))
+            raise DatasetException(self.task.language('append_not_browse') % self.item_name)
         self._do_before_append()
         self._do_before_scroll()
         self._old_row = self.rec_no
         self.item_state = common.STATE_INSERT
         self._dataset.append(self.new_record())
         self._cur_row = len(self._dataset) - 1
-#        self._modified = False
         self.record_status = common.RECORD_INSERTED
         self.update_controls(common.UPDATE_APPEND)
         self._do_after_scroll()
@@ -1634,9 +1782,9 @@ class AbstractDataSet(object):
 
     def insert(self):
         if not self.active:
-            raise DatasetException(u"Can't insert record in %s: %s is not active" % (self.item_name, self.item_name))
+            raise DatasetException(self.task.language('insert_not_active') % self.item_name)
         if self.item_state != common.STATE_BROWSE:
-            raise DatasetException(u"Can't insert record in %s: %s is not in browse state" % (self.item_name, self.item_name))
+            raise DatasetException(self.task.language('insert_not_browse') % self.item_name)
         self._do_before_append()
         self._do_before_scroll()
         self._old_row = self.rec_no
@@ -1683,11 +1831,11 @@ class AbstractDataSet(object):
 
     def edit(self):
         if not self.active:
-            raise DatasetException(u"Can't edit record in %s: %s is not active" % (self.item_name, self.item_name))
+            raise DatasetException(self.task.language('edit_not_active') % self.item_name)
         if self.item_state != common.STATE_BROWSE:
-            raise DatasetException(u"Can't edit record in %s: %s is not in browse state" % (self.item_name, self.item_name))
+            raise DatasetException(self.task.language('edit_not_browse') % self.item_name)
         if self.record_count() == 0:
-            raise DatasetException(u"Can't edit record in %s: %s' record list is empty" % (self.item_name, self.item_name))
+            raise DatasetException(self.task.language('edit_no_records') % self.item_name)
         self._do_before_edit()
         self.change_log.log_change()
         self._buffer = self.change_log.store_record_log()
@@ -1707,9 +1855,9 @@ class AbstractDataSet(object):
 
     def delete(self):
         if not self.active:
-            raise DatasetException(u"Can't delete record in %s: %s is not active" % (self.item_name, self.item_name))
+            raise DatasetException(self.task.language('delete_not_active') % self.item_name)
         if self.record_count() == 0:
-            raise DatasetException(u"Can't delete record in %s: %s' record list is empty" % (self.item_name, self.item_name))
+            raise DatasetException(self.task.language('delete_no_records') % self.item_name)
         self.item_state = common.STATE_DELETE
         try:
             self._do_before_delete()
@@ -1746,7 +1894,7 @@ class AbstractDataSet(object):
             self.update_controls(common.UPDATE_DELETE)
             del self._dataset[self.rec_no]
         else:
-            raise Exception, '%s cancel error: invalid item state' % self.item_name
+            raise Exception(self.task.language('cancel_invalid_state') % self.item_name)
         prev_state = self.item_state
         self.item_state = common.STATE_BROWSE
         if prev_state in [common.STATE_INSERT]:
@@ -1769,10 +1917,10 @@ class AbstractDataSet(object):
 
     def post(self):
         if not self.is_changing():
-            raise DatasetException, u'%s: dataset is not in edit or insert mode' % self.item_name
+            raise DatasetException(self.task.language('not_edit_insert_state') % self.item_name)
         self.check_record_valid()
         self._do_before_post()
-        if self.master:
+        if self.master and self._master_id:
             self.field_by_name(self._master_id).value = self.master.ID
         for detail in self.details:
             if detail.is_changing():
@@ -1859,19 +2007,25 @@ class AbstractDataSet(object):
 
     def set_filters(self, **filters):
         self.clear_filters()
-        for filter_name in filters.keys():
+        for filter_name in iterkeys(filters):
             try:
                 filter = self.filter_by_name(filter_name)
                 filter.value = filters[filter_name]
-            except Exception, e:
+            except Exception as e:
                 raise RuntimeError('%s: set_filters method arument error %s=%s: %s' % (self.item_name, filter_name, filters[filter_name], e))
 
-    def find_default_field(self):
-        for field in self.fields:
-            if field.is_default:
-                return field
+    def get_default_field(self):
+        try:
+            return self._default_field
+        except:
+            self._default_field = None
+            for field in self.fields:
+                if field.is_default:
+                    self._default_field = field
+                    break
+            return self._default_field
 
-    default_field = property (find_default_field)
+    default_field = property (get_default_field)
 
     def round(self, value, dec):
         return round(value, dec)
@@ -1886,7 +2040,6 @@ class MasterDataSet(AbstractDataSet):
         if details:
             for detail in self.details:
                 copy_table = detail._copy(filters, details, handlers)
-                copy_table.owner = result
                 copy_table.master = result
                 copy_table.expanded = detail.expanded
                 result.details.append(copy_table)
@@ -1895,13 +2048,14 @@ class MasterDataSet(AbstractDataSet):
                     setattr(result, copy_table.item_name, copy_table)
                 if not hasattr(result.details, copy_table.item_name):
                     setattr(result.details, copy_table.item_name, copy_table)
+                copy_table.owner = result
 
         return result
 
-    def do_apply(self, params):
+    def do_apply(self, params, safe):
         pass
 
-    def apply(self, params=None):
+    def apply(self, params=None, safe=False):
         result = None
         if self.is_changing():
             self.post()
@@ -1909,7 +2063,7 @@ class MasterDataSet(AbstractDataSet):
             result = self.on_before_apply(self)
             if result:
                 params = result
-        self.do_apply(params)
+        self.do_apply(params, safe)
         if self.on_after_apply:
             self.on_after_apply(self)
 
@@ -1975,13 +2129,35 @@ class MasterDetailDataset(MasterDataSet):
             if self.master.record_status != common.RECORD_UNCHANGED:
                 return self.master.change_log.get_detail_log(str(self.ID))
 
-    def open(self, expanded=None, fields=None, where=None, order_by=None,
+    def open(self, options=None, expanded=None, fields=None, where=None, order_by=None,
         open_empty=False, params=None, offset=None, limit=None, funcs=None,
-        group_by=None):
+        group_by=None, safe=False):
+        if safe and not self.can_view():
+            raise Exception(self.task.language('cant_view') % self.item_caption)
+        if options and type(options) == dict:
+            if options.get('expanded'):
+                expanded = options['expanded']
+            if options.get('fields'):
+                fields = options['fields']
+            if options.get('where'):
+                where = options['where']
+            if options.get('order_by'):
+                order_by = options['order_by']
+            if options.get('open_empty'):
+                open_empty =False,
+            if options.get('params'):
+                params = options['params']
+            if options.get('offset'):
+                offset = options['offset']
+            if options.get('limit'):
+                limit = options['limit']
+            if options.get('funcs'):
+                funcs = options['funcs']
         if expanded is None:
             expanded = self.expanded
         else:
             self.expanded = expanded
+        group_by
         if not params:
             params = {}
         if self.master:
@@ -2033,16 +2209,17 @@ class MasterDetailDataset(MasterDataSet):
             return result
 
         params = {}
-        for args, value in locals().iteritems():
+        for args, value in iteritems(locals()):
             if not args in ['self', 'ids', 'params', 'slice_ids']:
                 params[args] = value
         if type(ids) == dict:
-            id_field_name = ids.keys()[0]
+            keys = list(iterkeys(ids))
+            id_field_name = keys[0]
             ids = ids[id_field_name]
         elif type(ids) == list:
             id_field_name = 'id'
         else:
-            raise Exception, u'Invalid ids parameter in open_for_ids method of item "%s"' % self.item_name
+            raise Exception('Item %s: invalid ids parameter in open__in method' % self.item_name)
         if params['where'] is None:
             params['where'] = {}
         on_after_open = self.on_after_open
@@ -2066,22 +2243,22 @@ class MasterDetailDataset(MasterDataSet):
 
     def insert(self):
         if self.master and not self.master.is_changing():
-            raise DatasetException, u"%s: can't insert record - master item is not in edit or insert mode" % self.owner.item_name
+            raise DatasetException(self.task.language('insert_master_not_changing') % self.item_name)
         super(MasterDetailDataset, self).insert()
 
     def append(self):
         if self.master and not self.master.is_changing():
-            raise DatasetException, u"%s: can't append record - master item is not in edit or insert mode" % self.owner.item_name
+            raise DatasetException(self.task.language('append_master_not_changing') % self.item_name)
         super(MasterDetailDataset, self).append()
 
     def edit(self):
         if self.master and not self.master.is_changing():
-            raise DatasetException, u"%s: can't edit record - master item is not in edit or insert mode" % self.owner.item_name
+            raise DatasetException(self.task.language('edit_master_not_changing') % self.item_name)
         super(MasterDetailDataset, self).edit()
 
     def delete(self):
         if self.master and not self.master.is_changing():
-            raise DatasetException, u"%s: can't delete record - master item is not in edit or insert mode" % self.owner.item_name
+            raise DatasetException(self.task.language('delete_master_not_changing') % self.item_name)
         super(MasterDetailDataset, self).delete()
 
     def _set_modified(self, value):
@@ -2092,10 +2269,8 @@ class MasterDetailDataset(MasterDataSet):
     def is_modified(self):
         return super(MasterDetailDataset, self).is_modified()
 
-#    modified = property (is_modified, _set_modified)
-
     def _get_read_only(self):
-        if self.master and self.parent_read_only:
+        if self.master and self.owner_read_only:
             return self.master.read_only
         else:
             return super(MasterDetailDataset, self)._get_read_only()

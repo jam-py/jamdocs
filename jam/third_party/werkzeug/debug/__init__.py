@@ -65,14 +65,17 @@ def get_machine_id():
 
         # On OS X we can use the computer's serial number assuming that
         # ioreg exists and can spit out that information.
-        from subprocess import Popen, PIPE
         try:
+            # Also catch import errors: subprocess may not be available, e.g.
+            # Google App Engine
+            # See https://github.com/pallets/werkzeug/issues/925
+            from subprocess import Popen, PIPE
             dump = Popen(['ioreg', '-c', 'IOPlatformExpertDevice', '-d', '2'],
                          stdout=PIPE).communicate()[0]
             match = re.search(b'"serial-number" = <([^>]+)', dump)
             if match is not None:
                 return match.group(1)
-        except OSError:
+        except (OSError, ImportError):
             pass
 
         # On Windows we can use winreg to get the machine guid
@@ -89,7 +92,11 @@ def get_machine_id():
                 with wr.OpenKey(wr.HKEY_LOCAL_MACHINE,
                                 'SOFTWARE\\Microsoft\\Cryptography', 0,
                                 wr.KEY_READ | wr.KEY_WOW64_64KEY) as rk:
-                    return wr.QueryValueEx(rk, 'MachineGuid')[0]
+                    machineGuid, wrType = wr.QueryValueEx(rk, 'MachineGuid')
+                    if (wrType == wr.REG_SZ):
+                        return machineGuid.encode('utf-8')
+                    else:
+                        return machineGuid
             except WindowsError:
                 pass
 

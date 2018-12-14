@@ -1,22 +1,42 @@
-# -*- coding: utf-8 -*-
-
 import sys
 import os
 import datetime, time
 import xml.dom.minidom
 import json
-import cPickle
+import pickle
 import locale
 import decimal
 import zipfile
 import gzip
-import cStringIO
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from io import BytesIO as StringIO
+
+from werkzeug._compat import to_unicode, to_bytes
 
 DEFAULT_SETTINGS = {
     'LANGUAGE': 1,
     'SAFE_MODE': False,
     'DEBUGGING': False,
     'VERSION': '',
+    'CON_POOL_SIZE': 4,
+    'MP_POOL': False,
+    'PERSIST_CON': False,
+    'SINGLE_FILE_JS': False,
+    'DYNAMIC_JS': False,
+    'COMPRESSED_JS': False,
+    'TIMEOUT': 0,
+    'IGNORE_CHANGE_IP': True,
+    'DELETE_REPORTS_AFTER': 0,
+    'THEME': 1,
+    'SMALL_FONT': False,
+    'FULL_WIDTH': False,
+    'FORMS_IN_TABS': True,
+    'MAX_CONTENT_LENGTH': 0
+}
+
+DEFAULT_LOCALE = {
     'DECIMAL_POINT': '.',
     'MON_DECIMAL_POINT': '.',
     'MON_THOUSANDS_SEP': '',
@@ -30,50 +50,35 @@ DEFAULT_SETTINGS = {
     'NEGATIVE_SIGN': '-',
     'P_SIGN_POSN': 1,
     'N_SIGN_POSN': 1,
-    'D_FMT': '%x',
-    'D_T_FMT': '%X',
-    'CON_POOL_SIZE': 4,
-    'MP_POOL': False,
-    'PERSIST_CON': False,
-    'SINGLE_FILE_JS': False,
-    'DYNAMIC_JS': False,
-    'COMPRESSED_JS': False
+    'D_FMT': '%Y-%m-%d',
+    'D_T_FMT': '%Y-%m-%d %H:%M'
 }
 
-LOCALE_SETTINGS = (
-    'DECIMAL_POINT',
-    'MON_DECIMAL_POINT',
-    'MON_THOUSANDS_SEP',
-    'CURRENCY_SYMBOL',
-    'FRAC_DIGITS',
-    'P_CS_PRECEDES',
-    'N_CS_PRECEDES',
-    'P_SEP_BY_SPACE',
-    'N_SEP_BY_SPACE',
-    'POSITIVE_SIGN',
-    'NEGATIVE_SIGN',
-    'P_SIGN_POSN',
-    'N_SIGN_POSN',
-    'D_FMT',
-    'D_T_FMT'
-)
-
 SETTINGS = {}
+LOCALE = {}
+
+THEMES = ('Bootstrap', 'Cerulean', 'Amelia', 'Flatly', 'Journal',
+    'Slate', 'United', 'Cosmo', 'Readable', 'Spacelab')
+THEME_FILE = ('', 'bootstrap.css', 'bootstrap-cerulean.css',
+    'bootstrap-amelia.css', 'bootstrap-flatly.css', 'bootstrap-journal.css',
+    'bootstrap-slate.css', 'bootstrap-united.css', 'bootstrap-cosmo.css',
+    'bootstrap-readable.css', 'bootstrap-spacelab.css')
+
 
 RESPONSE, NOT_LOGGED, UNDER_MAINTAINANCE, NO_PROJECT = range(1, 5)
 
 ROOT_TYPE, USERS_TYPE, ROLES_TYPE, TASKS_TYPE, TASK_TYPE, \
     ITEMS_TYPE, JOURNALS_TYPE, TABLES_TYPE, REPORTS_TYPE, \
     ITEM_TYPE, JOURNAL_TYPE, TABLE_TYPE, REPORT_TYPE, DETAIL_TYPE = range(1, 15)
-ITEM_TYPES = ["root", "users", "roles", "tasks", 'task',
-        "items", "items", "tables", "reports",
-        "item", "item", "table", "report", "detail"]
+ITEM_TYPES = ["root", "users", "roles", "tasks", "task",
+        "items", "items", "details", "reports",
+        "item", "item", "detail_item", "report", "detail"]
 
-GROUP_TYPES = ["Item group", "Table group", "Report group"]
+GROUP_TYPES = ["Item group", "Detail group", "Report group"]
 
-TEXT, INTEGER, FLOAT, CURRENCY, DATE, DATETIME, BOOLEAN, BLOB = range(1, 9)
-FIELD_TYPES = ('TEXT', 'INTEGER', 'FLOAT', 'CURRENCY', 'DATE', 'DATETIME', 'BOOLEAN', 'BLOB')
-FIELD_TYPE_NAMES = ('', 'text', 'integer', 'float', 'currency', 'date', 'datetime', 'boolean', 'blob')
+TEXT, INTEGER, FLOAT, CURRENCY, DATE, DATETIME, BOOLEAN, LONGTEXT, KEYS, FILE, IMAGE = range(1, 12)
+FIELD_TYPES = ('TEXT', 'INTEGER', 'FLOAT', 'CURRENCY', 'DATE', 'DATETIME', 'BOOLEAN', 'LONGTEXT', 'KEYS', 'FILE', 'IMAGE')
+FIELD_TYPE_NAMES = ('', 'text', 'integer', 'float', 'currency', 'date', 'datetime', 'boolean', 'longtext', 'keys', 'file', 'image')
 ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT = 1, 2, 3
 ALIGNMENT = ('ALIGN_LEFT', 'ALIGN_CENTER', 'ALIGN_RIGHT')
 ITEM_FIELD, FILTER_FIELD, PARAM_FIELD = range(1, 4)
@@ -102,6 +107,33 @@ FILTER_PARAM_INDENT = '__$_filter_$__'
 CLIENT_MODULE, WEB_CLIENT_MODULE, SERVER_MODULE = range(3)
 TAB_FUNCS, TAB_EVENTS, TAB_TASK, TAB_FIELDS = range(4)
 editor_tabs = ("Module", "Events", "Task", "Fields")
+
+HISTORY_FIELDS = [
+    ['item_id', INTEGER, None],
+    ['item_rec_id', INTEGER, None],
+    ['operation', INTEGER, None],
+    ['changes', LONGTEXT, None],
+    ['user', TEXT, 30],
+    ['date', DATETIME, None]
+]
+HISTORY_INDEX_FIELDS = ['item_id', 'item_rec_id']
+
+LOCKS_FIELDS = [
+    ['id', INTEGER, None],
+    ['item_id', INTEGER, None],
+    ['item_rec_id', INTEGER, None],
+    ['user', TEXT, 30],
+    ['date', DATETIME, None]
+]
+LOCKS_INDEX_FIELDS = ['item_id', 'item_rec_id']
+
+SQL_KEYWORDS = ['DATE', 'DAY', 'MONTH']
+
+def error_message(e):
+    try:
+        return str(e)
+    except:
+        return unicode(e)
 
 def get_alignment(data_type, item=None, lookup_values=None):
     if (data_type == INTEGER) or (data_type == FLOAT) or (data_type == CURRENCY):
@@ -232,17 +264,17 @@ def str_to_datetime(date_str):
     return datetime.datetime(time_tuple.tm_year, time_tuple.tm_mon,
         time_tuple.tm_mday, time_tuple.tm_hour, time_tuple.tm_min, time_tuple.tm_sec)
 
-def ui_to_string(file_name):
-    with open(file_name, "r") as f:
-        return f.read()
-
 def load_interface(item):
     item._view_list = []
     item._edit_list = []
     item._order_list = []
     item._reports_list = []
-    if item.f_info.value:
-        lists = cPickle.loads(str(item.f_info.value))
+    value = item.f_info.value
+    if value:
+        if len(value) >= 4 and value[0:4] == 'json':
+            lists = json.loads(value[4:])
+        else:
+            lists = pickle.loads(to_bytes(value, 'utf-8'))
         item._view_list = lists['view']
         item._edit_list = lists['edit']
         item._order_list = lists['order']
@@ -258,18 +290,18 @@ def store_interface(item):
                 'edit': item._edit_list,
                 'order': item._order_list,
                 'reports': item._reports_list}
-        item.f_info.value = str(cPickle.dumps(dic))
+        item.f_info.value = 'json' + json.dumps(dic, default=json_defaul_handler)
+        #~ item.f_info.value = to_unicode(pickle.dumps(dic, protocol=0), 'utf-8')
         item.post()
         item.apply()
     finally:
         handlers = item.load_handlers(handlers)
 
 def store_index_fields(f_list):
-    return cPickle.dumps(f_list)
+    return json.dumps(f_list)
 
 def load_index_fields(value):
-    return cPickle.loads(str(value))
-
+    return json.loads(str(value))
 
 def valid_identifier(name):
     if name[0].isdigit():
@@ -283,7 +315,7 @@ def valid_identifier(name):
     except:
         return False
 
-def remove_comments(text, module_type, comment_sign):
+def remove_comments(text, is_server, comment_sign):
     result = []
     if text:
         comment = False
@@ -299,7 +331,7 @@ def remove_comments(text, module_type, comment_sign):
                 pos = line.find(comment_sign)
                 if pos != -1:
                     line = line[0:pos] + comment_sign + (len(line) - len(line[0:pos] + comment_sign) - 1) * ' ' + '\n'
-                if module_type == WEB_CLIENT_MODULE:
+                if not is_server:
                     pos = line.find('/*')
                     if pos != -1:
                         end = line.find('*/', pos + 2)
@@ -312,7 +344,7 @@ def remove_comments(text, module_type, comment_sign):
         result = ''.join(result)
     return result
 
-def get_funcs_info(text, module_type):
+def get_funcs_info(text, is_server):
 
     def check_line(line, comment_sign, func_literal):
         func_name = ''
@@ -356,13 +388,13 @@ def get_funcs_info(text, module_type):
     funcs = {}
     funcs['result'] = {}
     if text:
-        if module_type == WEB_CLIENT_MODULE:
-            comment_sign = '//'
-            func_literal = 'function'
-        else:
+        if is_server:
             comment_sign = '#'
             func_literal = 'def'
-        text = remove_comments(text, module_type, comment_sign)
+        else:
+            comment_sign = '//'
+            func_literal = 'function'
+        text = remove_comments(text, is_server, comment_sign)
         lines = text.splitlines()
         funcs_list = []
         for i, line in enumerate(lines):
@@ -371,6 +403,26 @@ def get_funcs_info(text, module_type):
                 funcs_list.append(res)
         add_child_funcs(0, -1, funcs, 'result')
     return funcs['result']
+
+class cached_property(property):
+
+    def __init__(self, func, name=None, doc=None):
+        self.__name__ = name or func.__name__
+        self.__module__ = func.__module__
+        self.__doc__ = doc or func.__doc__
+        self.func = func
+
+    def __set__(self, obj, value):
+        obj.__dict__[self.__name__] = value
+
+    def __get__(self, obj, type=None):
+        if obj is None:
+            return self
+        value = obj.__dict__.get(self.__name__, _missing)
+        if value is _missing:
+            value = self.func(obj)
+            obj.__dict__[self.__name__] = value
+        return value
 
 class SingleInstance(object):
     def __init__(self, port=None):
@@ -387,13 +439,13 @@ class SingleInstance(object):
             self.cur.execute('CREATE TABLE IF NOT EXISTS PID (ID INTEGER NOT NULL)')
             self.con.commit()
             self.cur.execute('INSERT INTO PID (ID) VALUES (?)', (1,))
-        except sqlite3.OperationalError, e:
+        except sqlite3.OperationalError as e:
             if e.args[0].lower().find('database is locked') != -1:
                 self.con.close()
                 if port:
-                    print '%s port %s: another instance is already running, quitting' % (file_name, port)
+                    print('%s port %s: another instance is already running, quitting' % (file_name, port))
                 else:
-                    print '%s: another instance is already running, quitting' % file_name
+                    print('%s: another instance is already running, quitting' % file_name)
                 sys.exit(-1)
 
     def close(self):
@@ -408,31 +460,55 @@ def json_defaul_handler(obj):
         result = float(obj)
     return result
 
-def zip_dir(dir, zip_file, exclude_dirs=[], exclude_ext=[]):
-    folder = os.path.join(os.getcwd().decode('utf-8'), dir)
+def zip_dir(dir, zip_file, exclude_dirs=[], exclude_ext=[], recursive=True):
+    folder = os.path.join(os.getcwd(), dir)
     if os.path.exists(folder):
-        for dirpath, dirnames, filenames in os.walk(folder):
-            head, tail = os.path.split(dirpath)
-            if not tail in exclude_dirs:
-                for file_name in filenames:
-                    name, ext = os.path.splitext(file_name)
-                    if not ext in exclude_ext:
-                        file_path = os.path.join(dirpath, file_name)
-                        arcname = os.path.relpath(os.path.join(dir, file_path))
-                        zip_file.write(file_path, arcname)
-
-def now():
-    return datetime.datetime.now()
-
-def min_diff(diff):
-    return divmod(diff.days * 86400 + diff.seconds, 60)[0]
-
-def hour_diff(diff):
-    return divmod(diff.days * 86400 + diff.seconds, 3600)[0]
+        if recursive:
+            for dirpath, dirnames, filenames in os.walk(folder):
+                head, tail = os.path.split(dirpath)
+                if not tail in exclude_dirs:
+                    for file_name in filenames:
+                        name, ext = os.path.splitext(file_name)
+                        if not ext in exclude_ext:
+                            file_path = os.path.join(dirpath, file_name)
+                            arcname = os.path.relpath(os.path.join(dir, file_path))
+                            zip_file.write(file_path, arcname)
+        else:
+            for file_name in os.listdir(folder):
+                name, ext = os.path.splitext(file_name)
+                if not ext in exclude_ext:
+                    file_path = os.path.join(folder, file_name)
+                    arcname = os.path.relpath(os.path.join(dir, file_path))
+                    zip_file.write(file_path, arcname)
 
 def compressBuf(buf):
-    zbuf = cStringIO.StringIO()
+    zbuf = StringIO()
     zfile = gzip.GzipFile(mode = 'wb',  fileobj = zbuf, compresslevel = 9)
-    zfile.write(buf)
+    zfile.write(buf.encode())
     zfile.close()
     return zbuf.getvalue()
+
+def profileit(func):
+    import cProfile
+
+    def wrapper(*args, **kwargs):
+        datafn = func.__name__ + ".profile" # Name the data file sensibly
+        prof = cProfile.Profile()
+        retval = prof.runcall(func, *args, **kwargs)
+        prof.dump_stats(datafn)
+        return retval
+
+    return wrapper
+
+def timeit(method):
+
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+
+        print('%s  %s' %  (method.__name__, te-ts))
+        return result
+
+    return timed
+

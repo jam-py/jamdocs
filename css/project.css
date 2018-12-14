@@ -9,8 +9,13 @@
     vertical-align: top;
 }
 
+#left-panel {
+    padding-right: 10px;
+}
+
 .side-panel {
     padding: 10px;
+    padding-bottom: 1px;
     border: solid 1px #eee;
     display: none;
 }
@@ -20,9 +25,10 @@
 }
 
 .vert-btn {
-    margin-left: 14px;
-    margin-top: 1px;
-    margin-bottom: 1px;
+    padding: 4px 0;
+    margin-left: 12px;
+    margin-top: 0;
+    margin-bottom: 8px;
     width: 160px;
 }
 
@@ -32,6 +38,10 @@
     color: red;
 }
 
-/*.ace_content {*/
-/*    font-size: 15px;*/
-/*}*/
+.modal-body {
+    padding: 0;
+}
+
+.modal .modal-body {
+    padding: 9px;
+}

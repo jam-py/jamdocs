@@ -22,15 +22,22 @@
     // Picker object
 
     var Datepicker = function(element, options){
+        var self = this;
         this.element = $(element);
         this.format = DPGlobal.parseFormat(options.format||this.element.data('date-format')||'mm/dd/yyyy');
         this.picker = $(DPGlobal.template)
-//                            .appendTo('body')
-                            .appendTo(this.element.offsetParent())
+                            .appendTo('body')
+//                            .appendTo(this.element.offsetParent())
                             .on({
                                 click: $.proxy(this.click, this)//,
                                 //mousedown: $.proxy(this.mousedown, this)
                             });
+        //~ this.picker.on('blur', function() {
+            //~ self.update();
+            //~ self.picker.hide();
+            //~ self.picker.remove();
+            //~ self.element.removeData('datepicker');
+        //~ });
         this.picker.css('background-color', $('body').css('background-color'));
         this.isInput = this.element.is('input');
 //        this.component = this.element.is('.date') ? this.element.find('.add-on') : false;
@@ -38,9 +45,7 @@
 
         if (this.isInput) {
             this.element.on({
-                //focus: $.proxy(this.show, this),
-                //blur: $.proxy(this.hide, this),
-                keyup: $.proxy(this.update, this)
+//                keyup: $.proxy(this.update, this)
             });
         } else {
             if (this.component){
@@ -109,23 +114,22 @@
             if (!this.isInput) {
             }
             var that = this;
-            $(document).on('mousedown', function(ev){
-                if ($(ev.target).closest('.datepicker').length == 0) {
-                    that.hide();
-                }
-            });
             //~ this.element.trigger({
                 //~ type: 'show',
                 //~ date: this.date
             //~ });
-            this.picker.on("keyup", function(e) {
-                if (e.keyCode === 27) {
-                    e.stopPropagation();
-                    e.preventDefault();
+            $(document).on('mousedown.datepicker', function(ev){
+                if ($(ev.target).closest('.datepicker').length == 0) {
                     that.hide();
                 }
             });
-//            this.picker.find('.datepicker-days').focus();
+            this.element.on("keyup.datepicker", function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.keyCode === 27) {
+                    that.hide();
+                }
+            });
             this.picker.focus();
         },
 
@@ -134,16 +138,11 @@
             $(window).off('resize', this.place);
             this.viewMode = this.startViewMode;
             this.showMode();
-            if (!this.isInput) {
-                $(document).off('mousedown', this.hide);
-            }
-            this.picker.off("keyup");
-            //this.set();
-            //~ this.element.trigger({
-                //~ type: 'hide',
-                //~ date: this.date
-            //~ });
+            $(document).off('mousedown.datepicker');
+            this.element.off("keyup.datepicker");
             this.element.focus();
+            this.element.removeData('datepicker');
+            this.picker.detach();
         },
 
         set: function() {
@@ -170,7 +169,8 @@
         },
 
         place: function(){
-            var offset = this.component ? this.component.position() : this.element.position();
+//            var offset = this.component ? this.component.position() : this.element.position();
+            var offset = this.element.offset();
             this.picker.css({
                 top: offset.top + this.height,
                 left: offset.left
@@ -415,6 +415,7 @@
             }
             return {separator: separator, parts: parts};
         },
+
         parseDate: function(date, format) {
             var parts = date.split(format.separator),
                 date = new Date(),
@@ -423,7 +424,7 @@
             date.setMinutes(0);
             date.setSeconds(0);
             date.setMilliseconds(0);
-            if (parts.length === format.parts.length) {
+            if (parts.length === 3) {//format.parts.length) {
                 var year = date.getFullYear(), day = date.getDate(), month = date.getMonth();
                 for (var i=0, cnt = format.parts.length; i < cnt; i++) {
                     val = parseInt(parts[i], 10)||1;
@@ -443,6 +444,7 @@
                             date.setFullYear(2000 + val);
                             break;
                         case 'yyyy':
+                        case 'Y':
                             year = val;
                             date.setFullYear(val);
                             break;

@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
-
-from __future__ import with_statement
 import sys
-import cPickle
 import cx_Oracle
+from werkzeug._compat import text_type, to_bytes, to_unicode
 
+DATABASE = 'ORACLE'
 NEED_DATABASE_NAME = True
 NEED_LOGIN = True
 NEED_PASSWORD = True
@@ -13,14 +11,16 @@ NEED_HOST = False
 NEED_PORT = False
 CAN_CHANGE_TYPE = False
 CAN_CHANGE_SIZE = False
-UPPER_CASE = True
 DDL_ROLLBACK = False
+NEED_GENERATOR = True
+
 FROM = '"%s" %s '
 LEFT_OUTER_JOIN = 'LEFT OUTER JOIN "%s" %s'
 FIELD_AS = 'AS'
 LIKE = 'LIKE'
+DESC = 'DESC NULLS LAST'
 
-JAM_TYPES = TEXT, INTEGER, FLOAT, CURRENCY, DATE, DATETIME, BOOLEAN, BLOB = range(1, 9)
+JAM_TYPES = TEXT, INTEGER, FLOAT, CURRENCY, DATE, DATETIME, BOOLEAN, LONGTEXT, KEYS, FILE, IMAGE = range(1, 12)
 FIELD_TYPES = {
     INTEGER: 'NUMBER',
     TEXT: 'VARCHAR2',
@@ -29,17 +29,19 @@ FIELD_TYPES = {
     DATE: 'DATE',
     DATETIME: 'TIMESTAMP',
     BOOLEAN: 'NUMBER',
-    BLOB: 'BLOB'
+    LONGTEXT: 'CLOB',
+    KEYS: 'CLOB',
+    FILE: 'CLOB',
+    IMAGE: 'CLOB'
 }
 
-def connect(database, user, password, host, port, encoding):
+def connect(database, user, password, host, port, encoding, server):
     if database and user and password:
         return cx_Oracle.connect(user=user, password=password, dsn=database)
     elif database:
         return cx_Oracle.connect(dsn=database)
 
-def get_lastrowid(cursor):
-    return None
+get_lastrowid = None
 
 def get_fields(query, fields, alias):
     sql = ''
@@ -47,18 +49,19 @@ def get_fields(query, fields, alias):
         if field.master_field:
             pass
         elif field.calculated:
-            sql += 'NULL AS "%s", ' % field.field_name
+            sql += 'NULL AS "%s", ' % field.db_field_name
         else:
-            sql += '%s."%s", ' % (alias, field.field_name)
+            sql += '%s."%s", ' % (alias, field.db_field_name)
     if query['__expanded']:
         for field in fields:
             if field.lookup_item:
-                sql += '%s_LOOKUP, ' % field.field_name
+                sql += '%s_LOOKUP, ' % field.db_field_name
     sql = sql[:-2]
-    return set_case(sql)
+    return sql
 
-
-def get_select(query, start, end, fields):
+def get_select(query, fields_clause, from_clause, where_clause, group_clause, order_clause, fields):
+    start = fields_clause
+    end = ''.join([from_clause, where_clause, group_clause, order_clause])
     offset = query['__offset']
     limit = query['__limit']
     result = 'SELECT %s FROM %s' % (start, end)
@@ -77,12 +80,6 @@ def process_sql_params(params, cursor):
     for i, p in enumerate(params):
         if type(p) == tuple:
             value, data_type = p
-            if data_type == BLOB:
-                if type(value) == unicode:
-                    value = value.encode('utf-8')
-                blob = cursor.var(cx_Oracle.BLOB)
-                blob.setvalue(0, value)
-                value = blob
         else:
             value = p
         result.append(value)
@@ -95,6 +92,7 @@ def process_sql_result(rows):
         for field in row:
             if isinstance(field, cx_Oracle.LOB):
                 field = field.read()
+                field = to_unicode(field, 'utf-8')
             fields.append(field)
         result.append(fields)
     return result
@@ -108,55 +106,63 @@ def cast_datetime(datetime_str):
 def value_literal(index):
     return ':f%d' % index
 
-def upper_function():
-    return 'UPPER'
+def convert_like(field_name, val, data_type):
+    if data_type in [INTEGER, FLOAT, CURRENCY]:
+        return 'TO_CHAR(%s, 99999999999990.999999999999)' % field_name, val
+    else:
+        return field_name, val
 
-def create_table_sql(table_name, fields, foreign_fields=None):
+def create_table_sql(table_name, fields, gen_name=None, foreign_fields=None):
     result = []
     primary_key = ''
-    sql = set_case('CREATE TABLE "%s"\n(\n' % table_name)
+    sql = 'CREATE TABLE "%s"\n(\n' % table_name
+    lines = []
     for field in fields:
-        sql += set_case('"%s" %s' % (field['field_name'], FIELD_TYPES[field['data_type']]))
+        line = '"%s" %s' % (field['field_name'], FIELD_TYPES[field['data_type']])
         if field['size'] != 0 and field['data_type'] == TEXT:
-            sql += '(%d)' % field['size']
+            line += '(%d)' % field['size']
         if field['default_value'] and not field['primary_key']:
             if field['data_type'] == TEXT:
-                sql += " DEFAULT '%s'" % field['default_value']
+                line += " DEFAULT '%s'" % field['default_value']
             else:
-                sql += ' DEFAULT %s' % field['default_value']
-        sql +=  ',\n'
+                line += ' DEFAULT %s' % field['default_value']
         if field['primary_key']:
-            primary_key = set_case(field['field_name'])
-    sql += set_case('CONSTRAINT %s_PR_INDEX PRIMARY KEY ("%s")\n' % \
-        (table_name, primary_key))
+            primary_key = field['field_name']
+        lines.append(line)
+    if primary_key:
+        lines.append('CONSTRAINT %s_PR_INDEX PRIMARY KEY ("%s")\n' % \
+            (table_name, primary_key))
+    sql += ',\n'.join(lines)
     sql += ')\n'
     result.append(sql)
-    result.append(set_case('CREATE SEQUENCE "%s_GEN"' % table_name))
+    if primary_key:
+        result.append('CREATE SEQUENCE "%s"' % gen_name)
     return result
 
-def delete_table_sql(table_name):
+def delete_table_sql(table_name, gen_name):
     result = []
-    result.append(set_case('DROP TABLE "%s"' % table_name))
-    result.append(set_case('DROP SEQUENCE "%s_GEN"' % table_name))
+    result.append('DROP TABLE "%s"' % table_name)
+    if gen_name:
+        result.append('DROP SEQUENCE "%s"' % gen_name)
     return result
 
 def create_index_sql(index_name, table_name, unique, fields, desc):
-    return set_case('CREATE %s INDEX "%s" ON "%s" (%s)' % \
-        (unique, index_name, table_name, fields))
+    return 'CREATE %s INDEX "%s" ON "%s" (%s)' % \
+        (unique, index_name, table_name, fields)
 
 def create_foreign_index_sql(table_name, index_name, key, ref, primary_key):
-    return set_case('ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s(%s)' % \
-        (table_name, index_name, key, ref, primary_key))
+    return 'ALTER TABLE "%s" ADD CONSTRAINT "%s" FOREIGN KEY ("%s") REFERENCES "%s"("%s")' % \
+        (table_name, index_name, key, ref, primary_key)
 
 def delete_index(table_name, index_name):
-    return set_case('DROP INDEX "%s"' % index_name)
+    return 'DROP INDEX "%s"' % index_name
 
 def delete_foreign_index(table_name, index_name):
-    return set_case('ALTER TABLE %s DROP CONSTRAINT %s' % (table_name, index_name))
+    return 'ALTER TABLE "%s" DROP CONSTRAINT "%s"' % (table_name, index_name)
 
 def add_field_sql(table_name, field):
     result = 'ALTER TABLE "%s" ADD "%s" %s'
-    result = set_case(result % (table_name, field['field_name'], FIELD_TYPES[field['data_type']]))
+    result = result % (table_name, field['field_name'], FIELD_TYPES[field['data_type']])
     if field['size']:
         result += '(%d)' % field['size']
     if field['default_value']:
@@ -167,49 +173,65 @@ def add_field_sql(table_name, field):
     return result
 
 def del_field_sql(table_name, field):
-    return set_case('ALTER TABLE "%s" DROP COLUMN "%s"' % (table_name, field['field_name']))
+    return 'ALTER TABLE "%s" DROP COLUMN "%s"' % (table_name, field['field_name'])
 
 def change_field_sql(table_name, old_field, new_field):
     result = []
     if FIELD_TYPES[old_field['data_type']] != FIELD_TYPES[new_field['data_type']] \
         or old_field['size'] != new_field['size']:
-        raise Exception, u"Don't know how to change field's size or type of %s" % old_field['field_name']
+        raise Exception(u"Don't know how to change field's size or type of %s" % old_field['field_name'])
     if old_field['field_name'] != new_field['field_name']:
-        sql = set_case('ALTER TABLE "%s" RENAME COLUMN "%s" TO "%s"' % \
-            (table_name, old_field['field_name'], new_field['field_name']))
+        sql = 'ALTER TABLE "%s" RENAME COLUMN "%s" TO "%s"' % \
+            (table_name, old_field['field_name'], new_field['field_name'])
         result.append(sql)
     if old_field['default_value'] != new_field['default_value']:
         if new_field['default_value']:
             if new_field['data_type'] == TEXT:
-                sql = set_case('ALTER TABLE "%s" MODIFY "%s" DEFAULT' % \
-                    (table_name, new_field['field_name']))
+                sql = 'ALTER TABLE "%s" MODIFY "%s" DEFAULT' % \
+                    (table_name, new_field['field_name'])
                 sql +=  " '%s'" % new_field['default_value']
             else:
-                sql = set_case('ALTER TABLE "%s" MODIFY "%s" DEFAULT %s' % \
-                    (table_name, new_field['field_name'], new_field['default_value']))
+                sql = 'ALTER TABLE "%s" MODIFY "%s" DEFAULT %s' % \
+                    (table_name, new_field['field_name'], new_field['default_value'])
         else:
-            sql = set_case('ALTER TABLE "%s" MODIFY "%s" DEFAULT %s' % \
-                (table_name, new_field['field_name'], 'NULL'))
+            sql = 'ALTER TABLE "%s" MODIFY "%s" DEFAULT %s' % \
+                (table_name, new_field['field_name'], 'NULL')
         result.append(sql)
     return result
-
-def set_case(string):
-    return string.upper()
 
 def param_literal():
     return '?'
 
-def get_sequence_name(table_name):
-    return set_case('%s_GEN' % table_name)
+def next_sequence_value_sql(gen_name):
+    return 'SELECT "%s".NEXTVAL FROM DUAL' % gen_name
 
-def next_sequence_value_sql(table_name):
-    return set_case('SELECT %s.NEXTVAL FROM DUAL' % \
-        get_sequence_name(table_name))
-
-def restart_sequence_sql(table_name, value):
+def restart_sequence_sql(gen_name, value):
     result = []
-    result.append(set_case('DROP SEQUENCE "%s_GEN"' % table_name))
-    result.append(set_case('CREATE SEQUENCE "%s_GEN" START WITH %s' % (table_name, value)))
+    result.append('DROP SEQUENCE "%s"' % gen_name)
+    result.append('CREATE SEQUENCE "%s" START WITH %s' % (gen_name, value))
     return result
 
+def identifier_case(name):
+    return name.upper()
 
+def get_table_names(connection):
+    cursor = connection.cursor()
+    cursor.execute('SELECT table_name FROM user_tables')
+    result = cursor.fetchall()
+    return [r[0] for r in result]
+
+def get_table_info(connection, table_name, db_name):
+    cursor = connection.cursor()
+    sql = "SELECT COLUMN_NAME, DATA_TYPE, CHAR_LENGTH, DATA_DEFAULT FROM USER_TAB_COLUMNS WHERE TABLE_NAME='%s'" % table_name
+    cursor.execute(sql)
+    result = cursor.fetchall()
+    fields = []
+    for (field_name, data_type, size, default_value) in result:
+        fields.append({
+            'field_name': field_name,
+            'data_type': data_type,
+            'size': size,
+            'default_value': default_value,
+            'pk': False
+        })
+    return {'fields': fields, 'field_types': FIELD_TYPES}
