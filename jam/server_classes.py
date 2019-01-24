@@ -824,7 +824,7 @@ class AbstractServerTask(AbstrTask):
         self.on_open = None
         self.on_apply = None
         self.on_count = None
-        self.work_dir = os.getcwd()
+        self.work_dir = app.work_dir
         self.con_pool_size = 0
         self.mod_count = 0
         self.modules = []
@@ -833,13 +833,14 @@ class AbstractServerTask(AbstrTask):
         self.mp_pool = mp_pool
         self.persist_con = persist_con
         self.con_counter = ConCounter()
-        #~ self.persist_con_busy = 0
-        if self.mp_pool:
-            if self.persist_con:
+        if self.persist_con:
+            if self.mp_pool:
                 self.create_connection_pool(1)
-            self.create_mp_connection_pool(self.con_pool_size)
-        else:
-            self.create_connection_pool(self.con_pool_size)
+                self.create_mp_connection_pool(self.con_pool_size)
+            else:
+                self.create_connection_pool(self.con_pool_size)
+        if self.db_type == db_modules.SQLITE:
+            self.db_database = os.path.join(self.work_dir, self.db_database)
 
     def get_version(self):
         return common.SETTINGS['VERSION']
@@ -901,17 +902,24 @@ class AbstractServerTask(AbstrTask):
     def execute(self, command, params=None, connection=None, db_module=None, call_proc=False, select=False):
         if connection:
             connection, result = execute_sql_connection(connection, command, params, call_proc, select, False, db_module)
-        elif self.mp_pool:
-            if self.persist_con and not self.con_counter.val:
-                self.con_counter.val += 1
-                try:
-                    result = self.execute_in_pool(command, params, call_proc, select)
-                finally:
-                    self.con_counter.val -= 1
+        elif self.persist_con:
+            if self.mp_pool:
+                if not self.con_counter.val:
+                    self.con_counter.val += 1
+                    try:
+                        result = self.execute_in_pool(command, params, call_proc, select)
+                    finally:
+                        self.con_counter.val -= 1
+                else:
+                    result = self.execute_in_mp_poll(command, params, call_proc, select)
             else:
-                result = self.execute_in_mp_poll(command, params, call_proc, select)
+                result = self.execute_in_pool(command, params, call_proc, select)
         else:
-            result = self.execute_in_pool(command, params, call_proc, select)
+            connection = self.create_connection()
+            try:
+                connection, result = execute_sql_connection(connection, command, params, call_proc, select, False, self.db_module)
+            finally:
+                connection.close()
         return result
 
     def callproc(self, command, params=None):
@@ -1139,10 +1147,7 @@ class AdminTask(AbstractServerTask):
         db_type, db_server = '', db_database = '', db_user = '', db_password = '',
         host='', port='', encoding=''):
         AbstractServerTask.__init__(self, app, name, caption, js_filename,
-            db_type, db_server, db_database, db_user, db_password, host, port, encoding, 2)
-        filepath, filename = os.path.split(__file__)
-        self.cur_path = filepath
-        self.edited_docs = []
+            db_type, db_server, db_database, db_user, db_password, host, port, encoding)
 
     def create_task(self):
         from jam.adm_server import create_task

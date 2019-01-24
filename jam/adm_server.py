@@ -14,7 +14,7 @@ from operator import itemgetter
 from esprima import parseScript, nodes
 
 import jam.common as common
-from jam.common import error_message
+from jam.common import error_message, file_read, file_write
 import jam.db.db_modules as db_modules
 from jam.server_classes import *
 from jam.events import get_events
@@ -140,6 +140,7 @@ def create_items(task):
     task.sys_params.add_field(22, 'f_full_width', task.language('full_width'), common.BOOLEAN)
     task.sys_params.add_field(23, 'f_forms_in_tabs', task.language('forms_in_tabs'), common.BOOLEAN)
     task.sys_params.add_field(24, 'f_max_content_length', 'Max content length (MB)', common.INTEGER)
+    task.sys_params.add_field(25, 'f_secret_key', 'Secret key', common.TEXT, size = 256)
 
     task.sys_items.add_field(1, 'id', 'ID', common.INTEGER, visible=True, edit_visible=False)
     task.sys_items.add_field(2, 'deleted', 'Deleted flag', common.INTEGER, visible=False, edit_visible=False)
@@ -630,6 +631,20 @@ def init_delete_reports(task):
     t.daemon = True
     t.start()
 
+def read_secret_key(task):
+    result = None
+    con = task.create_connection()
+    try:
+        cursor = con.cursor()
+        cursor.execute('SELECT f_secret_key FROM SYS_PARAMS')
+        rec = cursor.fetchall()
+    finally:
+        con.rollback()
+        con.close()
+    result = rec[0][0]
+    if result is None:
+        result = ''
+    return result
 
 def init_admin(task):
     langs.update_langs(task)
@@ -648,6 +663,7 @@ def init_admin(task):
     except:
         task.task_mp_pool = 4
         task.task_persist_con = True
+    task.secret_key = read_secret_key(task)
     task.safe_mode = common.SETTINGS['SAFE_MODE']
     task.max_content_length = common.SETTINGS['MAX_CONTENT_LENGTH']
     task.timeout = common.SETTINGS['TIMEOUT']
@@ -1111,8 +1127,7 @@ def server_set_project_langage(task, lang):
     it.apply()
 
     file_name = 'index.html'
-    with open(file_name, 'r') as f:
-        data = to_unicode(f.read(), 'utf-8')
+    data = file_read(file_name)
     start = data.find('__$_')
     label_list = []
     while start > -1:
@@ -1127,9 +1142,26 @@ def server_set_project_langage(task, lang):
             data = data.replace(search, task.language(replace))
         except:
             pass
-    with open(file_name, 'wb') as f:
-        f.write(to_bytes(data, 'utf8'))
+    file_write(file_name, data)
     register_events(task)
+
+# ~ def server_change_secret_key(task):
+    # ~ from base64 import b64encode
+    # ~ result = False
+    # ~ key = b64encode(os.urandom(20)).decode('utf-8')
+    # ~ con = task.create_connection()
+    # ~ try:
+        # ~ cursor = con.cursor()
+        # ~ cursor.execute("UPDATE SYS_PARAMS SET F_SECRET_KEY='%s'" % key)
+        # ~ con.commit()
+        # ~ task.secret_key = key
+        # ~ task.app.task_server_modified = True
+        # ~ result = True
+    # ~ except:
+        # ~ con.rollback()
+    # ~ finally:
+        # ~ con.close()
+    # ~ return result
 
 def server_update_has_children(task):
     has_children = {}
@@ -1180,7 +1212,7 @@ def server_export_task(task, task_id, url=None):
             json.dump(result, f)
         with zipfile.ZipFile(zip_file_name, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             zip_file.write(task_file)
-            zip_file.write('index.html')
+            common.zip_html(zip_file)
             common.zip_dir('js', zip_file)
             common.zip_dir('css', zip_file)
             common.zip_dir(os.path.join('static', 'img'), zip_file)
@@ -1189,7 +1221,7 @@ def server_export_task(task, task_id, url=None):
             common.zip_dir(os.path.join('static', 'fonts'), zip_file)
             common.zip_dir(os.path.join('static', 'builder'), zip_file)
             common.zip_dir('utils', zip_file, exclude_ext=['.pyc'])
-            common.zip_dir('reports', zip_file, exclude_ext=['.xml', '.ods#'], recursive=False)
+            common.zip_dir('reports', zip_file, exclude_ext=['.xml', '.ods#'], recursive=True)
         if url:
             items = task.sys_items.copy()
             items.set_where(id=task_id)
@@ -1202,8 +1234,7 @@ def server_export_task(task, task_id, url=None):
             os.rename(to_unicode(file_name, 'utf-8'), os.path.join(to_unicode(result_path, 'utf-8'), to_unicode(result_file, 'utf-8')))
             result = '%s/static/_internal/%s' % (url, result_file)
         else:
-            with open(file_name, 'r') as f:
-                result = f.read()
+            result = file_read(file_name)
     finally:
         if os.path.exists(task_file):
             os.remove(task_file)
@@ -1242,8 +1273,7 @@ def import_metadata(task, task_id, file_name, from_client=False):
 
     def get_items(dir):
         file_name = os.path.join(dir, 'task.dat')
-        with open(file_name, 'r' ) as f:
-            data = f.read()
+        data = file_read(file_name)
         data_lists = json.loads(data)
         new_items = {}
         old_items = {}
@@ -1857,6 +1887,9 @@ def update_events_code(task):
         js_filename = js_filenames.get(item.ID, '')
         item.js_filename = js_filename
 
+    def get_js_file_name(js_path):
+        return js_path + '.js'
+
     single_file = common.SETTINGS['SINGLE_FILE_JS']
     name_dict = {}
     js_filenames = {}
@@ -1873,7 +1906,7 @@ def update_events_code(task):
     script_common = ''
     for it in it:
         js_path = get_js_path(it)
-        js_filename = js_path + '.js'
+        js_filename = get_js_file_name(js_path)
         file_name = os.path.join(to_unicode(os.getcwd(), 'utf-8'), 'js', js_filename)
         if os.path.exists(file_name):
             os.remove(file_name)
@@ -1894,19 +1927,17 @@ def update_events_code(task):
                 else:
                     script = script_start + script + script_end
                     cur_js_filename = js_filename
-                    with open(file_name, 'wb') as f:
-                        f.write(to_bytes(script, 'utf-8'))
+                    file_write(file_name, script)
                     if common.SETTINGS['COMPRESSED_JS']:
                         minify(file_name)
             js_filenames[it.id.value] = cur_js_filename
     if single_file:
         it.first()
-        js_file_name = it.f_item_name.value + '.js'
+        js_file_name = get_js_file_name(it.f_item_name.value)
         js_filenames[it.id.value] = js_file_name
         script = script_start + script_common + script_end
         file_name = os.path.join(to_unicode(os.getcwd(), 'utf-8'), 'js', js_file_name)
-        with open(file_name, 'wb') as f:
-            f.write(to_bytes(script, 'utf-8'))
+        file_write(file_name, script)
         if common.SETTINGS['COMPRESSED_JS']:
             minify(file_name)
     sql = []
@@ -1915,6 +1946,11 @@ def update_events_code(task):
     it.task.execute(sql)
     if it.task.app.task:
         it.task.app.task.all(update_task)
+    try:
+        from utils.js_code import update_js
+        update_js(task)
+    except:
+        pass
 
 def get_minified_name(file_name):
     result = file_name
@@ -1927,10 +1963,8 @@ def get_minified_name(file_name):
 def minify(file_name):
     min_file_name = get_minified_name(file_name)
     from jam.third_party.jsmin import jsmin
-    with open(file_name, 'r') as f:
-        text = f.read()
-    with open(min_file_name, 'w') as f:
-        f.write(jsmin(text))
+    text = file_read(file_name)
+    file_write(min_file_name, jsmin(text))
 
 def get_field_dict(task, item_id, parent_id, type_id, table_id):
     result = {}
@@ -2075,7 +2109,7 @@ def server_save_edit(task, item_id, text, is_server):
                 else:
                     error = e.args[0]
             except:
-                error = 'Error'
+                error = str(e).replace('check_item_code, ', '')
                 traceback.print_exc()
     else:
         try:
@@ -2126,8 +2160,7 @@ def server_file_info(task, file_name):
         ext = 'css'
         file_path = os.path.join('css', 'project.css')
     if os.path.exists(file_path):
-        with open(file_path, 'r') as f:
-            result['doc'] = f.read()
+        result['doc'] = file_read(file_path)
     result['name'] = file_name
     result['ext'] = ext
     result['type'] = ''
@@ -2135,15 +2168,14 @@ def server_file_info(task, file_name):
     return result
 
 def server_save_file(task, file_name, code):
-    code = to_bytes(code, 'utf-8')
+    #~ code = to_bytes(code, 'utf-8')
     result = {}
     error = ''
     if file_name == 'project.css':
         file_name = os.path.join('css', 'project.css')
     file_name = os.path.normpath(file_name)
     try:
-        with open(file_name, 'wb') as f:
-            f.write(to_bytes(code, 'utf-8'))
+        file_write(file_name, code)
     except Exception as e:
         traceback.print_exc()
         error = error_message(e)
@@ -2256,12 +2288,10 @@ def change_theme(task):
     else:
         rlist.append(('jam12.css', 'jam.css'))
     file_name = os.path.join(task.work_dir, 'index.html')
-    with open(file_name, 'r') as f:
-        content = f.read()
-        for r1, r2 in rlist:
-            content = content.replace(prefix + r1, prefix + r2)
-    with open(file_name, 'wb') as f:
-        f.write(to_bytes(content, 'utf-8'))
+    content = file_read(file_name)
+    for r1, r2 in rlist:
+        content = content.replace(prefix + r1, prefix + r2)
+    file_write(file_name, content)
 
 def do_on_apply_param_changes(item, delta, params):
     task = item.task
@@ -3270,6 +3300,7 @@ def register_events(task):
     task.register(server_check_connection)
     task.register(server_set_task_name)
     task.register(server_set_project_langage)
+    # ~ task.register(server_change_secret_key)
     task.register(server_update_has_children)
     task.register(server_export_task)
     task.register(server_import_task)

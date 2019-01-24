@@ -8,6 +8,7 @@ import locale
 import decimal
 import zipfile
 import gzip
+import io
 try:
     from cStringIO import StringIO
 except ImportError:
@@ -460,6 +461,15 @@ def json_defaul_handler(obj):
         result = float(obj)
     return result
 
+def zip_html(zip_file):
+    folder = os.getcwd()
+    for file_name in os.listdir(folder):
+        name, ext = os.path.splitext(file_name)
+        if ext == '.html':
+            file_path = os.path.join(folder, file_name)
+            arcname = os.path.relpath(os.path.join(folder, file_path))
+            zip_file.write(file_path, arcname)
+
 def zip_dir(dir, zip_file, exclude_dirs=[], exclude_ext=[], recursive=True):
     folder = os.path.join(os.getcwd(), dir)
     if os.path.exists(folder):
@@ -487,6 +497,14 @@ def compressBuf(buf):
     zfile.write(buf.encode())
     zfile.close()
     return zbuf.getvalue()
+
+def file_read(filename):
+    with open(filename, 'rb') as f:
+        return to_unicode(f.read(), 'utf-8', errors='ignore')
+
+def file_write(filename, data):
+    with open(filename, 'wb') as f:
+        f.write(to_bytes(data, 'utf-8', errors='ignore'))
 
 def profileit(func):
     import cProfile
