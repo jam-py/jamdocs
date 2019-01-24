@@ -29,8 +29,6 @@ Main features
 * Automatic synchronization of the application with changes to the files in the 
   documentation directory.
 
-This `video <https://youtu.be/3z5362QhlEQ>`_ (3 min) demonstrates how to use JamDocs
-
 Getting started
 ===============
 
@@ -44,7 +42,10 @@ Getting started
   
 5. In the dialog that will appear input name of the Sphinx project and a path to *conf.py* of the project. Click **OK** button to save data and double-click the project to select it.
 
-Getting started with JamDocs `video <https://youtu.be/kLdWZJXgx5o>`_ (1 min)
+Video tutorial
+==============
+
+This `video <https://youtu.be/zx7Ubyfl0M8>`_ demonstrates how to set up and use JamDocs
 
 Author
 ======
