@@ -152,7 +152,7 @@ class DBField(object):
                 if self.data_type == common.FLOAT:
                     self.set_value(common.str_to_float(value))
                 elif self.data_type == common.CURRENCY:
-                    self.set_value(common.str_to_float(value))
+                    self.set_value(common.str_to_currency(value))
                 elif self.data_type == common.DATE:
                     self.set_value(common.str_to_date(value))
                 elif self.data_type == common.DATETIME:
@@ -311,6 +311,25 @@ class DBField(object):
             self._do_after_changed(lookup_item)
 
     value = property (get_value, set_value)
+
+    def get_old_value(self):
+        if isinstance(self.owner, AbstractDataSet) and  self.owner._is_delta:
+            row = self.get_row()
+            if row and self.bind_index >= 0:
+                try:
+                    rec_info = row[len(row) - 1]
+                    old_row = rec_info[common.REC_OLD_REC]
+                    if old_row:
+                        result = old_row[self.bind_index]
+                    elif self.owner.rec_deleted():
+                        result = self.value
+                    return result
+                except:
+                    pass
+        else:
+            raise Exception('Only delta can have old value property.')
+
+    old_value = property (get_old_value)
 
     def _set_modified(self, value):
         if not self.calculated:
@@ -1488,6 +1507,8 @@ class AbstractDataSet(object):
         else:
             return 0
 
+    rec_count = property (record_count)
+
     def update_controls(self, state):
         pass
 
@@ -2049,13 +2070,14 @@ class MasterDataSet(AbstractDataSet):
                 if not hasattr(result.details, copy_table.item_name):
                     setattr(result.details, copy_table.item_name, copy_table)
                 copy_table.owner = result
+                copy_table.prototype = detail.prototype
 
         return result
 
     def do_apply(self, params, safe):
         pass
 
-    def apply(self, params=None, safe=False):
+    def apply(self, connection=None, params=None, safe=False):
         result = None
         if self.is_changing():
             self.post()
@@ -2063,7 +2085,7 @@ class MasterDataSet(AbstractDataSet):
             result = self.on_before_apply(self)
             if result:
                 params = result
-        self.do_apply(params, safe)
+        self.do_apply(params, safe, connection)
         if self.on_after_apply:
             self.on_after_apply(self)
 

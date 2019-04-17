@@ -1026,6 +1026,8 @@ def load_task(target, app, first_build=True, after_import=False):
     def history_on_apply(item, delta, params):
         raise Exception('Changing of history is not allowed.')
 
+    target.pool.dispose()
+    target.pool.recreate()
     task = app.admin
     remove_attr(target)
     target.items = []
@@ -2251,7 +2253,7 @@ def server_valid_item_name(task, item_id, parent_id, name, type_id):
         items.set_where(type_id__ne=common.DETAIL_TYPE)
         items.open()
         for it in items:
-            if it.task_id.value and it.task_id.value != it.id.value and it.id.value != item_id and it.f_item_name.value.upper() == name.upper():
+            if it.task_id.value and it.id.value != item_id and it.f_item_name.value.upper() == name.upper():
                 result = 'There is an item with this name'
                 break
     return result
