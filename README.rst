@@ -9,7 +9,7 @@ documentation.
 Requirements
 ============
 
-* One of the following Python version must be installed: 2.7, 3.4, 3.5, 3.6, 3.7.
+* One of the following Python version must be installed: 3.5, 3.6, 3.7.
 * `Sphinx <http://www.sphinx-doc.org/en/master/>`_ python library must be installed.
 
 Main features
