@@ -3,7 +3,7 @@
 
 function Events1() { // jamdoc 
 
-	function on_page_loaded(task) {
+	function on_page_loaded(task) { 
 		var height, 
 			groups; 
 	
@@ -20,6 +20,8 @@ function Events1() { // jamdoc
 		
 		$('#content').empty();
 		task.set_forms_container($("#content"));
+	
+		task.server('init_project', [task.parameters.id.value]);
 		
 		task.parameters.refresh_record();		
 		task.project_id = task.parameters.id.value;
@@ -28,7 +30,7 @@ function Events1() { // jamdoc
 		
 		task.os_sep = task.parameters.os_sep.value;
 		task.source_suffix = task.parameters.source_suffix.value;
-	
+		
 		$("#project-name").text(task.project_name + ': ');
 		$("#project-path").html(task.project_path).off('click');
 		$("#project-path").html(task.project_path).on('click', function(e) {
@@ -488,28 +490,26 @@ function Events6() { // jamdoc.catalogs.parameters
 			field_validate = item.on_field_validate;
 		if (item.rec_count) {
 			item.close_view_form();
-			if (!item.is_active.value) {
-				item.on_field_validate = null;
-				item.disable_controls();
-				try {
-					item.each(function(i) {
-						i.edit();   
-						i.is_active.value = false;
-						i.post();
-					});
-				}
-				finally {
-					item.rec_no = rec;
-					item.enable_controls();
-					item.on_field_validate = field_validate;
-				}
-				item.edit();
-				item.is_active.value = true;
-				item.post();
-				item.apply();
-				item.task.server('init_project', [item.id.value]);
-				item.task.on_page_loaded(item.task);
+			item.on_field_validate = null;
+			item.disable_controls();
+			try {
+				item.each(function(i) {
+					i.edit();   
+					i.is_active.value = false;
+					i.post();
+				});
 			}
+			finally {
+				item.rec_no = rec;
+				item.enable_controls();
+				item.on_field_validate = field_validate;
+			}
+			item.edit();
+			item.is_active.value = true;
+			item.post();
+			item.apply();
+			// item.task.server('init_project', [item.id.value]);
+			item.task.on_page_loaded(item.task);
 		}
 	}
 	
@@ -562,12 +562,30 @@ function Events6() { // jamdoc.catalogs.parameters
 			field.value = $.trim(field.value);
 		}
 	}
+	
+	
+	
+	function on_view_form_close_query(item) {
+		var clone = item.clone(),
+			selected = false;
+		clone.each(function(c) {
+			if (c.is_active.value) {
+				selected = true;
+				return false;
+			}	   
+		});
+		if (!selected) {
+			item.alert('No project selected.')
+			return false;
+		}
+	}
 	this.select_project = select_project;
 	this.on_view_form_created = on_view_form_created;
 	this.on_view_form_shown = on_view_form_shown;
 	this.valid_path = valid_path;
 	this.on_field_validate = on_field_validate;
 	this.on_field_changed = on_field_changed;
+	this.on_view_form_close_query = on_view_form_close_query;
 }
 
 task.events.events6 = new Events6();
@@ -615,7 +633,7 @@ function Events7() { // jamdoc.journals.topics
 		title = title.split(task.os_sep);
 		title.shift();
 		title = title.join('&#8239;' + task.os_sep + '&#8239;');
-		item.edit_record($("#content"), title);	
+		item.edit_record($("#content"), {tab_name: title});	
 	}
 	
 	function del_doc(item) {

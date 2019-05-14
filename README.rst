@@ -3,8 +3,8 @@
 ========
 
 JamDocs is a web interface for `Sphinx <http://www.sphinx-doc.org/en/master/>`_
-documentation generator. It makes it very easy to create intelligent and beautiful
-documentation. 
+documentation generator built with `Jam.py <http://jam-py.com/>`_. 
+It makes it very easy to create intelligent and beautiful documentation. 
 
 Requirements
 ============
@@ -45,13 +45,11 @@ Getting started
 Video tutorial
 ==============
 
-This `video <https://youtu.be/zx7Ubyfl0M8>`_ demonstrates how to set up and use JamDocs
+This `video <https://youtu.be/zx7Ubyfl0M8>`_ demonstrates how to set up and use JamDocs.
 
 Author
 ======
 
 Andrew Yushev
-
-JamDocs is an application written in `Jam.py <http://jam-py.com/>`_. 
 
 It was used to create `Jam.py framework documentation <http://jam-py.com/docs/index.html>`_.
