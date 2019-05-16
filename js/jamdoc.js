@@ -21,8 +21,6 @@ function Events1() { // jamdoc
 		$('#content').empty();
 		task.set_forms_container($("#content"));
 	
-		task.server('init_project', [task.parameters.id.value]);
-		
 		task.parameters.refresh_record();		
 		task.project_id = task.parameters.id.value;
 		task.project_path = task.parameters.doc_path.value;
@@ -508,7 +506,7 @@ function Events6() { // jamdoc.catalogs.parameters
 			item.is_active.value = true;
 			item.post();
 			item.apply();
-			// item.task.server('init_project', [item.id.value]);
+			item.task.server('init_project', [item.id.value]);
 			item.task.on_page_loaded(item.task);
 		}
 	}
