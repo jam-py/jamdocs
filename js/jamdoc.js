@@ -610,6 +610,47 @@ function Events7() { // jamdoc.journals.topics
 		});
 	}
 	
+	function upload_file(item) {
+    console.log("click upload button");
+    function after_upload(server_file_name) {
+            var file_id = item.task.server('move_image_file', [item.item_tree.id.value, server_file_name]);
+            console.log(file_id);
+    
+            if (file_id) {  // refresh 
+            item.view_panel = item.view_form.find("#view-panel");
+            
+            // http://118.89.150.227:12345/api   
+            // xhr    refresh 
+        item.set_order_by(['file_name']);                
+            item.filters.type_gt.value = 1;
+            item.filters.parent.value = item.item_tree.id.value;
+            item.open();
+            item.locate('id', file_id);
+            item.task.param_dialog.close_edit_form();
+            item.task.server('check_files');  // refresh the div of file list.
+            setTimeout(
+                function () {
+                    item.open();
+                },  
+                100
+            );
+   
+            
+            }
+            // refresh  
+            
+        }
+    item.task.upload(
+                {
+                    accept: 'image/*',
+                    callback: function(server_file_name) {
+                        after_upload(server_file_name)
+                    }
+                }
+            );
+
+}   
+	
 	function new_doc_folder(item) {
 		item.task.param_dialog.get_params(item, 'New folder', ['folder_name'], function(result) {
 			var folder_id = item.task.server('create_doc_folder', [item.item_tree.id.value, result]);
@@ -787,9 +828,14 @@ function Events7() { // jamdoc.journals.topics
 		if (item.images) {
 			item.left_panel.hide();
 		}
+		item.view_form.find("#new-upload-btn").off('click.task').on('click', function() {
+                        upload_file(item);
+                });  
 		item.view_form.find("#new-btn").off('click.task').on('click', function() {
 			new_doc(item);
 		});  
+		
+		
 		item.view_form.find("#new-folder-btn").off('click.task').on('click', function() {
 			new_doc_folder(item);
 		});  
