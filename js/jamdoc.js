@@ -611,45 +611,27 @@ function Events7() { // jamdoc.journals.topics
 	}
 	
 	function upload_file(item) {
-    console.log("click upload button");
-    function after_upload(server_file_name) {
-            var file_id = item.task.server('move_image_file', [item.item_tree.id.value, server_file_name]);
-            console.log(file_id);
-    
-            if (file_id) {  // refresh 
-            item.view_panel = item.view_form.find("#view-panel");
-            
-            // http://118.89.150.227:12345/api   
-            // xhr    refresh 
-        item.set_order_by(['file_name']);                
-            item.filters.type_gt.value = 1;
-            item.filters.parent.value = item.item_tree.id.value;
-            item.open();
-            item.locate('id', file_id);
-            item.task.param_dialog.close_edit_form();
-            item.task.server('check_files');  // refresh the div of file list.
-            setTimeout(
-                function () {
-                    item.open();
-                },  
-                100
-            );
-   
-            
-            }
-            // refresh  
-            
-        }
-    item.task.upload(
-                {
-                    accept: 'image/*',
-                    callback: function(server_file_name) {
-                        after_upload(server_file_name)
-                    }
-                }
-            );
-
-}   
+		var after_upload = function(server_file_name, file_name) {
+			var error = item.task.server('move_image_file', [item.item_tree.id.value, server_file_name, file_name]);
+			if (error) {
+				item.alert_error(error);
+			}
+			else {
+				item.set_order_by(['file_name']);							
+				item.open();
+				item.locate('file_name', file_name);
+			}
+		};
+			
+		item.task.upload(
+			{
+				accept: 'image/*',
+				callback: function(server_file_name, file_name) {
+					after_upload(server_file_name, file_name);
+				}
+			}
+		);
+	}   
 	
 	function new_doc_folder(item) {
 		item.task.param_dialog.get_params(item, 'New folder', ['folder_name'], function(result) {
@@ -829,12 +811,12 @@ function Events7() { // jamdoc.journals.topics
 			item.left_panel.hide();
 		}
 		item.view_form.find("#new-upload-btn").off('click.task').on('click', function() {
-                        upload_file(item);
-                });  
+			upload_file(item);
+		}); 
+	   
 		item.view_form.find("#new-btn").off('click.task').on('click', function() {
 			new_doc(item);
 		});  
-		
 		
 		item.view_form.find("#new-folder-btn").off('click.task').on('click', function() {
 			new_doc_folder(item);
@@ -1259,6 +1241,7 @@ function Events7() { // jamdoc.journals.topics
 		}
 	}
 	this.new_doc = new_doc;
+	this.upload_file = upload_file;
 	this.new_doc_folder = new_doc_folder;
 	this.edit_doc = edit_doc;
 	this.del_doc = del_doc;
