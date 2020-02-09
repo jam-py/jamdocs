@@ -610,6 +610,29 @@ function Events7() { // jamdoc.journals.topics
 		});
 	}
 	
+	function upload_file(item) {
+		var after_upload = function(server_file_name, file_name) {
+			var error = item.task.server('move_image_file', [item.item_tree.id.value, server_file_name, file_name]);
+			if (error) {
+				item.alert_error(error);
+			}
+			else {
+				item.set_order_by(['file_name']);							
+				item.open();
+				item.locate('file_name', file_name);
+			}
+		};
+			
+		item.task.upload(
+			{
+				accept: 'image/*',
+				callback: function(server_file_name, file_name) {
+					after_upload(server_file_name, file_name);
+				}
+			}
+		);
+	}   
+	
 	function new_doc_folder(item) {
 		item.task.param_dialog.get_params(item, 'New folder', ['folder_name'], function(result) {
 			var folder_id = item.task.server('create_doc_folder', [item.item_tree.id.value, result]);
@@ -787,9 +810,14 @@ function Events7() { // jamdoc.journals.topics
 		if (item.images) {
 			item.left_panel.hide();
 		}
+		item.view_form.find("#new-upload-btn").off('click.task').on('click', function() {
+			upload_file(item);
+		}); 
+	   
 		item.view_form.find("#new-btn").off('click.task').on('click', function() {
 			new_doc(item);
 		});  
+		
 		item.view_form.find("#new-folder-btn").off('click.task').on('click', function() {
 			new_doc_folder(item);
 		});  
@@ -1213,6 +1241,7 @@ function Events7() { // jamdoc.journals.topics
 		}
 	}
 	this.new_doc = new_doc;
+	this.upload_file = upload_file;
 	this.new_doc_folder = new_doc_folder;
 	this.edit_doc = edit_doc;
 	this.del_doc = del_doc;
