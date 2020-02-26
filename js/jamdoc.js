@@ -7,6 +7,8 @@ function Events1() { // jamdoc
 		var height, 
 			groups; 
 	
+		$('.container').show();
+		
 		task.parameters.open();	
 		if (task.parameters.locate('is_active', true)) {
 			if (task.server('valid_project_path', [task.parameters.doc_path.value])) {
@@ -41,9 +43,6 @@ function Events1() { // jamdoc
 		task.topics.view_options.close_on_escape = false;
 		task.topics.view($("#content"), {show_close_btn: false});
 		
-		$(window).on('resize', function() {
-			resize(task);
-		});
 		$(window).blur(function(){
 			task.window_focused = false;
 		});
@@ -110,6 +109,84 @@ function Events1() { // jamdoc
 			item.view_form.find("#report-btn").hide();
 		}
 	}
+	
+	// function on_view_form_created(item) {
+	//	 var table_options_height = item.table_options.height,
+	//		 table_container;
+	
+	//	 // item.paginate = false; 
+	//	 // item.table_options.show_paginator = false;
+	//	 // item.table_options.show_scrollbar = true;
+		
+	//	 item.clear_filters();
+		
+	//	 item.view_options.table_container_class = 'view-table';
+	//	 item.view_options.detail_container_class = 'view-detail';
+	//	 item.view_options.open_item = !item.virtual_table;
+		
+	//	 if (item.view_form.hasClass('modal')) {
+	//		 item.view_options.width = 1060;
+	//		 item.table_options.height = $(window).height() - 300;
+	//	 }
+	//	 else {
+	//		 if (!item.table_options.height) {
+	//			 item.table_options.height = $(window).height() - $('body').height() - 10;
+	//		 }
+	//	 }
+		
+	//	 if (item.can_create()) {
+	//		 item.view_form.find("#new-btn").on('click.task', function(e) {
+	//			 e.preventDefault();
+	//			 if (item.master) {
+	//				 item.append_record();
+	//			 }
+	//			 else {
+	//				 item.insert_record();
+	//			 }
+	//		 });
+	//	 }
+	//	 else {
+	//		 item.view_form.find("#new-btn").prop("disabled", true);
+	//	 }
+	
+	//	 item.view_form.find("#edit-btn").on('click.task', function(e) {
+	//		 e.preventDefault();
+	//		 item.edit_record();
+	//	 });
+	
+	//	 if (item.can_delete()) {
+	//		 item.view_form.find("#delete-btn").on('click.task', function(e) {
+	//			 e.preventDefault();
+	//			 item.delete_record();
+	//		 });
+	//	 }
+	//	 else {
+	//		 item.view_form.find("#delete-btn").prop("disabled", true);
+	//	 }
+		
+	//	 create_print_btns(item);
+	
+	//	 task.view_form_created(item);
+		
+	//	 if (!item.master && item.owner.on_view_form_created) {
+	//		 item.owner.on_view_form_created(item);
+	//	 }
+	
+	//	 if (item.on_view_form_created) {
+	//		 item.on_view_form_created(item);
+	//	 }
+		
+	//	 item.create_view_tables();
+		
+	//	 if (!item.master && item.view_options.open_item) {
+	//		 item.open(true);
+	//	 }
+	
+	//	 if (!table_options_height) {
+	//		 item.table_options.height = undefined;
+	//	 }
+	//	 return true;
+	// }
 	
 	function on_view_form_created(item) {
 		var table_height = item.table_options.height, 
@@ -232,7 +309,6 @@ function Events1() { // jamdoc
 			item.open_details();
 		}
 		expand_buttons(item.edit_form);
-		resize_edit_table(item);	
 	}
 	
 	function on_edit_form_close_query(item) {
@@ -280,67 +356,6 @@ function Events1() { // jamdoc
 		expand_buttons(item.param_form);
 	}
 	
-	function resize_view_table(item) {
-		var newHeight;
-		if (item.view_table) {
-			newHeight = item.view_table.height() + $(window).height() - $('body').height() - 40;
-			if (newHeight < 200) {
-				newHeight = 200;
-			}
-			item.view_table.height(newHeight);
-			item.view_table.resize();
-		}
-	}
-	
-	function resize_edit_table(item, window_resized) {
-		var edit_form_height,
-			window_height,
-			newHeight;
-		if (item.edit_form && item.edit_table) {
-			edit_form_height = item.edit_form.height();
-			window_height = $(window).height();
-			if (window_resized || edit_form_height > window_height - 20) {
-				newHeight = item.edit_table.height() - (edit_form_height - window_height) - 20;
-				if (newHeight > 450) {
-					newHeight = 450;
-				}
-				if (newHeight < 200) {
-					newHeight = 200;
-				}
-				item.edit_table.height(newHeight);
-				item.edit_table.resize();
-			}
-		}
-	}
-	
-	function resize_items(task) {
-		var i,
-			j,
-			group,
-			item;
-		for (i = 0; i < task.items.length; i++) {
-			group = task.items[i];
-			for (j = 0; j < group.items.length; j++) {		
-				item = group.items[j];
-				if (item.resize) {
-					item.resize(item);
-				}
-			}
-		}	
-	}
-	
-	var timeOut;
-	
-	function resize(task) {
-		clearTimeout(timeOut);
-		timeOut = setTimeout(function() {
-			resize_items(task);
-		},
-		100);
-	}
-	
-	
-	
 	function on_view_form_shown(item) {
 		item.view_form.find('.dbtable.' + item.item_name + ' .inner-table').focus();
 	}
@@ -356,10 +371,6 @@ function Events1() { // jamdoc
 	this.on_filter_form_shown = on_filter_form_shown;
 	this.on_param_form_created = on_param_form_created;
 	this.on_param_form_shown = on_param_form_shown;
-	this.resize_view_table = resize_view_table;
-	this.resize_edit_table = resize_edit_table;
-	this.resize_items = resize_items;
-	this.resize = resize;
 	this.on_view_form_shown = on_view_form_shown;
 }
 
@@ -610,29 +621,6 @@ function Events7() { // jamdoc.journals.topics
 		});
 	}
 	
-	function upload_file(item) {
-		var after_upload = function(server_file_name, file_name) {
-			var error = item.task.server('move_image_file', [item.item_tree.id.value, server_file_name, file_name]);
-			if (error) {
-				item.alert_error(error);
-			}
-			else {
-				item.set_order_by(['file_name']);							
-				item.open();
-				item.locate('file_name', file_name);
-			}
-		};
-			
-		item.task.upload(
-			{
-				accept: 'image/*',
-				callback: function(server_file_name, file_name) {
-					after_upload(server_file_name, file_name);
-				}
-			}
-		);
-	}   
-	
 	function new_doc_folder(item) {
 		item.task.param_dialog.get_params(item, 'New folder', ['folder_name'], function(result) {
 			var folder_id = item.task.server('create_doc_folder', [item.item_tree.id.value, result]);
@@ -724,13 +712,16 @@ function Events7() { // jamdoc.journals.topics
 	function add_image(item) {
 		var path = get_link_path(item),
 			caption = 'New image',
-			fields = ['width', 'align', 'height', 'alt'];
+			fields = ['scale', 'width', 'align', 'height', 'alt'];
 		if (item.figure) {
 			caption = 'New figure';
-			fields = ['width', 'align', 'height', 'alt', 'figclass', 'figure_caption'];
+			fields = ['scale', 'width', 'align', 'height', 'alt', 'figclass', 'figure_caption'];
 		}
 		item.task.param_dialog.get_params(item, caption, fields, function(result) {
 			var options = '';
+			if (result.scale) {
+				options += '\n\t:scale: ' + result.scale;
+			}
 			if (result.width) {
 				options += '\n\t:width: ' + result.width;
 			}
@@ -810,14 +801,13 @@ function Events7() { // jamdoc.journals.topics
 		if (item.images) {
 			item.left_panel.hide();
 		}
+		
 		item.view_form.find("#new-upload-btn").off('click.task').on('click', function() {
 			upload_file(item);
 		}); 
-	   
 		item.view_form.find("#new-btn").off('click.task').on('click', function() {
 			new_doc(item);
 		});  
-		
 		item.view_form.find("#new-folder-btn").off('click.task').on('click', function() {
 			new_doc_folder(item);
 		});  
@@ -830,12 +820,15 @@ function Events7() { // jamdoc.journals.topics
 		item.view_form.find("#delete-folder-btn").on('click', function() {
 			del_folder(item);
 		});	  
+		item.view_form.find("#find-btn").on('click', function() {
+			find_in_project(item);
+		});  
 		item.create_table(item.view_form.find(".topics-table"), table_options);
 	}
 	
 	function on_view_form_shown(item) {
 		if (item.images) {
-			item.view_options.fields = ['file_name', 'relative_path'];		
+			// item.view_options.fields = ['file_name', 'relative_path'];
 			item.set_order_by(['file_name']);	
 			item.filters.type.value = 4;
 			item.open();	
@@ -857,7 +850,8 @@ function Events7() { // jamdoc.journals.topics
 				parent_of_root_value: 0
 			}
 		);
-		item.tree.$element.height(item.view_panel.height() - 22);	
+		// item.tree.$element.height(item.view_panel.height() - 78);
+		item.tree.$element.height(item.view_panel.height() - 20);		
 		if (item.links) {
 			item.item_tree.filters.type.value = 1;
 			item.item_tree.filters.has_docs.value = true;
@@ -877,7 +871,10 @@ function Events7() { // jamdoc.journals.topics
 	}
 	
 	function tree_changed(item) {
-		item.topics.view_options.fields = ['file_name'];		
+		// item.topics.view_options.fields = ['file_name', 'relative_path'];
+		if (item.topics.view_form) {
+			item.topics.view_form.find('form #search-input').val('');
+		}
 		item.topics.set_order_by(['file_name']);	
 		if (item.topics.links) {
 			item.topics.filters.type.value = 3;
@@ -1240,8 +1237,38 @@ function Events7() { // jamdoc.journals.topics
 			item.editor.destroy();
 		}
 	}
+	
+	function find_in_project(item) {
+		var search = task.find_in_project.copy();
+		search.topics = item;
+		search.open({open_empty: true});
+		search.set_edit_fields(['find_text', 'case_sensitive', 'whole_words']);
+		search.append_record();
+	}
+	
+	function upload_file(item) {
+		var after_upload = function(server_file_name, file_name) {
+			var error = item.task.server('move_image_file', [item.item_tree.id.value, server_file_name, file_name]);
+			if (error) {
+				item.alert_error(error);
+			}
+			else {
+				item.set_order_by(['file_name']);							
+				item.open();
+				item.locate('file_name', file_name);
+			}
+		};
+			
+		item.task.upload(
+			{
+				accept: 'image/*',
+				callback: function(server_file_name, file_name) {
+					after_upload(server_file_name, file_name);
+				}
+			}
+		);
+	}
 	this.new_doc = new_doc;
-	this.upload_file = upload_file;
 	this.new_doc_folder = new_doc_folder;
 	this.edit_doc = edit_doc;
 	this.del_doc = del_doc;
@@ -1279,6 +1306,8 @@ function Events7() { // jamdoc.journals.topics
 	this.preview = preview;
 	this.on_edit_form_keydown = on_edit_form_keydown;
 	this.on_edit_form_closed = on_edit_form_closed;
+	this.find_in_project = find_in_project;
+	this.upload_file = upload_file;
 }
 
 task.events.events7 = new Events7();
@@ -1333,7 +1362,7 @@ function Events9() { // jamdoc.catalogs.param_dialog
 					var ch = invalid_characters[i];
 					item.file_name.value = item.file_name.value.split(ch).join('_');
 				}
-				item.file_name.value = item.file_name.value.toLowerCase() + '.txt';
+				item.file_name.value = item.file_name.value.toLowerCase() + task.source_suffix;
 			}
 		}
 	} 
@@ -1371,5 +1400,34 @@ function Events9() { // jamdoc.catalogs.param_dialog
 }
 
 task.events.events9 = new Events9();
+
+function Events10() { // jamdoc.catalogs.find_in_project 
+
+	function on_edit_form_created(item) {
+		item.edit_form.title = 'Find in project';
+		item.edit_form.find("#cancel-btn")
+			.text('Close');
+		item.edit_form.find("#ok-btn")
+			.text('Find')
+			.off('click.task')
+			.on('click', function() {do_find(item)});
+	}
+	
+	function do_find(item) {
+	}
+	
+	function on_edit_form_keydown(item, event) {
+		if (event.keyCode === 13){
+			event.preventDefault();
+			item.edit_form.find("#ok-btn").focus();
+			do_find(item);
+		}
+	}
+	this.on_edit_form_created = on_edit_form_created;
+	this.do_find = do_find;
+	this.on_edit_form_keydown = on_edit_form_keydown;
+}
+
+task.events.events10 = new Events10();
 
 })(jQuery, task)

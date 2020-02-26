@@ -1,3 +1,4 @@
+
 #task-tabs.nav {
     margin-bottom: 10px;
 }
@@ -18,10 +19,6 @@
             border-radius: 4px;
 }
 
-form.row-fluid.form-horizontal {
-    margin: 0;
-}
-
 .modal {
     width: 560px;
 }
@@ -31,25 +28,25 @@ form.row-fluid.form-horizontal {
     background-color: #d9edf7;
 }
 
-.table tbody tr.selected > td:not(.field-selected) {
-    color: #333333;
-    background-color: #e6f7ff;
-}
+/*.table tbody tr.selected > td:not(.field-selected) {*/
+/*    color: #333333;*/
+/*    background-color: #e6f7ff;*/
+/*}*/
 
-.table tbody tr.selected-focused > td:not(.field-selected-focused) {
-    color: #333333;
-    background-color: #cceeff;
-}
+/*.table tbody tr.selected-focused > td:not(.field-selected-focused) {*/
+/*    color: #333333;*/
+/*    background-color: #cceeff;*/
+/*}*/
 
-.table tbody td.field-selected {
-    color: #333333;
-    background-color: #b3e6ff
-}
+/*.table tbody td.field-selected {*/
+/*    color: #333333;*/
+/*    background-color: #b3e6ff*/
+/*}*/
 
-.table tbody td.field-selected-focused {
-    color: #333333;
-    background-color: #99ddff;
-}
+/*.table tbody td.field-selected-focused {*/
+/*    color: #333333;*/
+/*    background-color: #99ddff;*/
+/*}*/
 
 .title-panel {
   padding: 14px 15px 15px;
@@ -259,3 +256,20 @@ p.lang-warning a {
     color: #e41e06;
     font-weight: bold;
 }
+
+.topic-badge {
+    margin-left: 2px;
+}
+
+.topic-badge a {
+    color: #ffffff;
+    font-weight: bold;
+    cursor: help;
+}
+
+
+
+
+
+
+
