@@ -4,8 +4,7 @@
 function Events1() { // jamdoc 
 
 	function on_page_loaded(task) { 
-		var height, 
-			groups; 
+		let info;
 	
 		$('.container').show();
 		
@@ -23,13 +22,13 @@ function Events1() { // jamdoc
 		$('#content').empty();
 		task.set_forms_container($("#content"));
 	
-		task.parameters.refresh_record();		
-		task.project_id = task.parameters.id.value;
-		task.project_path = task.parameters.doc_path.value;
-		task.project_name = task.parameters.project_name.value;
-		
-		task.os_sep = task.parameters.os_sep.value;
-		task.source_suffix = task.parameters.source_suffix.value;
+		info = task.server('get_project_info');
+		task.project_id = info.project_id;
+		task.project_path = info.project_path;
+		task.project_name = info.project_name;
+		task.os_sep = info.os_sep;
+		task.source_suffix = info.source_suffix;
+		task.default_source_suffix = info.default_source_suffix;
 		
 		$("#project-name").text(task.project_name + ': ');
 		$("#project-path").html(task.project_path).off('click');
@@ -674,10 +673,14 @@ function Events7() { // jamdoc.journals.topics
 	function get_link_path(item) {
 		var doc_path = item.topic.relative_path.value,
 			link_path = item.relative_path.value,
-			file_name = item.file_name.value.replace(item.task.source_suffix, ''),
+			file_name = item.file_name.value,
+			file_ext = file_name.split('.').pop(),
 			index = link_path.indexOf(doc_path),
 			pref,
 			path;
+		if (item.task.source_suffix.includes('.' + file_ext)) {
+			file_name = file_name.replace('.' + file_ext, '');
+		}
 		if (index === 0) {		
 			
 		}
@@ -785,7 +788,8 @@ function Events7() { // jamdoc.journals.topics
 				edit_doc(item);
 			};
 			table_options.row_callback = function(row, item) {
-				if (item.file_name.value.indexOf(item.task.source_suffix) === -1) {
+				let file_ext = item.file_name.value.split('.').pop();
+				if (!item.task.source_suffix.includes('.' + file_ext)) {
 					row.find('td.file_name').css("color", "gray");
 				}
 			};
@@ -960,7 +964,7 @@ function Events7() { // jamdoc.journals.topics
 		item.edit_form.find("li#html").click(function() {insert_code(item, 'html')});
 		
 		var file_ext = item.file_name.value.split('.').pop();
-		if ('.' + file_ext !== item.task.source_suffix) {
+		if (!item.task.source_suffix.includes('.' + file_ext)) {
 			item.edit_form.find("#left-box").hide();
 		}
 		item.edit_form.find("#build-info-btn").hide().click(function() {
@@ -983,7 +987,7 @@ function Events7() { // jamdoc.journals.topics
 		else if (ext === 'css') {
 			item.editor.getSession().setMode("ace/mode/css");
 		}
-		else if ('.' + ext === item.task.source_suffix) {		
+		else if (item.task.source_suffix.includes('.' + file_ext)) {
 			item.editor.getSession().setMode("ace/mode/rst");
 			item.editor.getSession().setOption("tabSize", 2);
 			item.editor.getSession().setUseSoftTabs(true);
@@ -1362,7 +1366,7 @@ function Events9() { // jamdoc.catalogs.param_dialog
 					var ch = invalid_characters[i];
 					item.file_name.value = item.file_name.value.split(ch).join('_');
 				}
-				item.file_name.value = item.file_name.value.toLowerCase() + task.source_suffix;
+				item.file_name.value = item.file_name.value.toLowerCase() + task.default_source_suffix;
 			}
 		}
 	} 
